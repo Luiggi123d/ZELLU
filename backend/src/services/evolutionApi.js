@@ -47,6 +47,10 @@ function instanceNameFor(pharmacyId) {
   return `zellu-${pharmacyId}`;
 }
 
+function webhookUrl() {
+  return `${(env.backendPublicUrl || '').replace(/\/+$/, '')}/api/whatsapp/webhook`;
+}
+
 // ============================================================
 // Endpoints
 // ============================================================
@@ -57,7 +61,6 @@ function instanceNameFor(pharmacyId) {
  */
 async function createInstance(pharmacyId) {
   const instanceName = instanceNameFor(pharmacyId);
-  const webhookUrl = `${env.backendPublicUrl.replace(/\/+$/, '')}/api/whatsapp/webhook`;
 
   try {
     const data = await request('POST', '/instance/create', {
@@ -65,7 +68,7 @@ async function createInstance(pharmacyId) {
       qrcode: true,
       integration: 'WHATSAPP-BAILEYS',
       webhook: {
-        url: webhookUrl,
+        url: webhookUrl(),
         byEvents: false,
         base64: true,
         events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'QRCODE_UPDATED'],
@@ -73,12 +76,48 @@ async function createInstance(pharmacyId) {
     });
     return normalizeQrResponse(data, instanceName);
   } catch (err) {
-    // If it already exists (409 / 403), fetch a fresh QR via /instance/connect
+    // If it already exists (409 / 403), ensure webhook is set then fetch a fresh QR
     if (err.status === 409 || err.status === 403 || /already in use|exists/i.test(err.message)) {
+      await setWebhook(pharmacyId).catch(() => {});
       return connectInstance(pharmacyId);
     }
     throw err;
   }
+}
+
+/**
+ * Returns current webhook config for an instance.
+ */
+async function getWebhookInfo(pharmacyId) {
+  const instanceName = instanceNameFor(pharmacyId);
+  try {
+    const data = await request('GET', `/webhook/find/${encodeURIComponent(instanceName)}`);
+    const currentUrl = data?.url || data?.webhook?.url || null;
+    return {
+      instanceName,
+      currentUrl,
+      expectedUrl: webhookUrl(),
+      ok: currentUrl === webhookUrl(),
+      raw: data,
+    };
+  } catch (err) {
+    return { instanceName, error: err.message, expectedUrl: webhookUrl() };
+  }
+}
+
+/**
+ * Forces webhook URL/events for an existing instance.
+ */
+async function setWebhook(pharmacyId) {
+  const instanceName = instanceNameFor(pharmacyId);
+  const data = await request('POST', `/webhook/set/${encodeURIComponent(instanceName)}`, {
+    url: webhookUrl(),
+    byEvents: false,
+    base64: true,
+    events: ['CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'QRCODE_UPDATED'],
+  });
+  console.log(`[evolutionApi] webhook configurado: ${webhookUrl()}`);
+  return data;
 }
 
 /**
@@ -162,9 +201,12 @@ async function deleteInstance(pharmacyId) {
 
 module.exports = {
   instanceNameFor,
+  webhookUrl,
   createInstance,
   connectInstance,
   getConnectionState,
   fetchInstances,
   deleteInstance,
+  getWebhookInfo,
+  setWebhook,
 };

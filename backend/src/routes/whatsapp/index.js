@@ -6,6 +6,31 @@ const evolution = require('../../services/evolutionApi');
 const router = Router();
 
 // ============================================================
+// In-memory status cache (per pharmacy) — reduces pressure on
+// Evolution API when multiple components poll /status.
+// ============================================================
+const statusCache = new Map();
+const STATUS_TTL = 15_000;
+
+function getCached(pharmacyId) {
+  const entry = statusCache.get(pharmacyId);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > STATUS_TTL) {
+    statusCache.delete(pharmacyId);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCache(pharmacyId, data) {
+  statusCache.set(pharmacyId, { data, ts: Date.now() });
+}
+
+function invalidateCache(pharmacyId) {
+  statusCache.delete(pharmacyId);
+}
+
+// ============================================================
 // POST /api/whatsapp/connect
 // Creates (or refreshes) an Evolution API instance for the user's
 // pharmacy and returns the QR code in base64.
@@ -17,6 +42,9 @@ router.post('/connect', requireAuth, requirePharmacy, async (req, res, next) => 
 
     // Create instance on Evolution API (idempotent — falls back to /connect on conflict)
     const { qrcode, pairingCode } = await evolution.createInstance(pharmacyId);
+
+    // A new QR means stale status; nuke cache
+    invalidateCache(pharmacyId);
 
     // Upsert local record
     await supabaseAdmin
@@ -50,6 +78,12 @@ router.get('/status', requireAuth, requirePharmacy, async (req, res, next) => {
   try {
     const pharmacyId = req.pharmacyId;
 
+    // Serve from cache if fresh
+    const cached = getCached(pharmacyId);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const { data: row } = await supabaseAdmin
       .from('whatsapp_instances')
       .select('*')
@@ -57,7 +91,9 @@ router.get('/status', requireAuth, requirePharmacy, async (req, res, next) => {
       .maybeSingle();
 
     if (!row) {
-      return res.json({ connected: false, state: 'not_found', phone: null });
+      const payload = { connected: false, state: 'not_found', phone: null };
+      setCache(pharmacyId, payload);
+      return res.json(payload);
     }
 
     let state = 'close';
@@ -92,12 +128,43 @@ router.get('/status', requireAuth, requirePharmacy, async (req, res, next) => {
         .eq('pharmacy_id', pharmacyId);
     }
 
-    return res.json({
+    const payload = {
       connected,
       state,
       phone: phone || null,
       instanceName: row.instance_name,
-    });
+    };
+    setCache(pharmacyId, payload);
+    return res.json(payload);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
+// POST /api/whatsapp/fix-webhook
+// Forces Evolution API to re-register the webhook URL/events for
+// this pharmacy's instance. Useful when the instance was created
+// before the webhook config was correct.
+// ============================================================
+router.post('/fix-webhook', requireAuth, requirePharmacy, async (req, res, next) => {
+  try {
+    const data = await evolution.setWebhook(req.pharmacyId);
+    return res.json({ ok: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
+// GET /api/whatsapp/webhook-info
+// Returns the current webhook config reported by Evolution API,
+// plus the expected URL so we can diagnose mismatches.
+// ============================================================
+router.get('/webhook-info', requireAuth, requirePharmacy, async (req, res, next) => {
+  try {
+    const info = await evolution.getWebhookInfo(req.pharmacyId);
+    return res.json(info);
   } catch (err) {
     next(err);
   }
@@ -127,6 +194,8 @@ router.delete('/disconnect', requireAuth, requirePharmacy, async (req, res, next
         updated_at: new Date().toISOString(),
       })
       .eq('pharmacy_id', pharmacyId);
+
+    invalidateCache(pharmacyId);
 
     return res.json({ disconnected: true });
   } catch (err) {
@@ -158,6 +227,8 @@ router.post('/webhook', async (req, res) => {
 
     const pharmacyId = parsePharmacyId(instanceName);
     if (!pharmacyId) return;
+
+    console.log(`[whatsapp webhook] event=${event} instance=${instanceName}`);
 
     if (event === 'CONNECTION_UPDATE' || event === 'connection.update') {
       await handleConnectionUpdate(pharmacyId, instanceName, data);
@@ -201,6 +272,8 @@ async function handleConnectionUpdate(pharmacyId, instanceName, data) {
       },
       { onConflict: 'pharmacy_id' }
     );
+
+  invalidateCache(pharmacyId);
 }
 
 async function handleMessagesUpsert(pharmacyId, instanceName, data) {

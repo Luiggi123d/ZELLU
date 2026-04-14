@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Wifi, WifiOff, Building2, Bell, CreditCard, Save, CheckCircle, Loader2, RefreshCw } from 'lucide-react';
 import { maskCNPJ, maskPhone } from '../../lib/masks';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
+import { useWhatsappStore } from '../../store/whatsappStore';
 import { api } from '../../lib/api';
 import { formatPhoneFromDigits } from '../../lib/dataHelpers';
 import { SkeletonCard } from '../../components/ui/Skeleton';
@@ -12,14 +13,20 @@ export default function SettingsPage() {
   const { profile } = useAuthStore();
   const pharmacyId = profile?.pharmacy_id;
 
-  const [loading, setLoading] = useState(true);
+  const connected = useWhatsappStore((s) => s.connected);
+  const phone = useWhatsappStore((s) => s.phone);
+  const state = useWhatsappStore((s) => s.state);
+  const fetchStatus = useWhatsappStore((s) => s.fetchStatus);
+  const setStatus = useWhatsappStore((s) => s.setStatus);
+  const startPolling = useWhatsappStore((s) => s.startPolling);
+  const stopPolling = useWhatsappStore((s) => s.stopPolling);
+  const resetWa = useWhatsappStore((s) => s.reset);
 
-  // WhatsApp state
-  const [waStatus, setWaStatus] = useState({ connected: false, phone: null, state: 'disconnected' });
+  const [loading, setLoading] = useState(true);
   const [waQrcode, setWaQrcode] = useState(null);
   const [waConnecting, setWaConnecting] = useState(false);
   const [waError, setWaError] = useState(null);
-  const pollRef = useRef(null);
+
   const [pharmacy, setPharmacy] = useState({
     name: '', cnpj: '', phone: '', address: '', email: '',
   });
@@ -42,50 +49,12 @@ export default function SettingsPage() {
     setLoading(false);
   }, [profile]);
 
-  // ============================================================
-  // WhatsApp — initial status check + polling lifecycle
-  // ============================================================
-  async function fetchStatus() {
-    try {
-      const data = await api.get('/whatsapp/status');
-      setWaStatus({
-        connected: !!data.connected,
-        phone: data.phone || null,
-        state: data.state || (data.connected ? 'open' : 'disconnected'),
-      });
-      return data;
-    } catch (err) {
-      // silent — polling will retry
-      return null;
-    }
-  }
-
   useEffect(() => {
     if (!pharmacyId) return;
-    fetchStatus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pharmacyId]);
+    fetchStatus(true);
+  }, [pharmacyId, fetchStatus]);
 
-  function startPolling() {
-    stopPolling();
-    pollRef.current = setInterval(async () => {
-      const data = await fetchStatus();
-      if (data?.connected) {
-        stopPolling();
-        setWaQrcode(null);
-        showToast(`WhatsApp conectado${data.phone ? ` (${formatPhoneFromDigits(data.phone)})` : ''}!`);
-      }
-    }, 3000);
-  }
-
-  function stopPolling() {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-  }
-
-  useEffect(() => () => stopPolling(), []);
+  useEffect(() => () => stopPolling(), [stopPolling]);
 
   async function handleConnectWhatsApp() {
     setWaConnecting(true);
@@ -97,7 +66,15 @@ export default function SettingsPage() {
         throw new Error('QR Code não retornado pela Evolution API');
       }
       setWaQrcode(data.qrcode);
-      startPolling();
+      startPolling((connectedData) => {
+        setStatus({
+          connected: true,
+          phone: connectedData.phone,
+          state: connectedData.state || 'open',
+        });
+        setWaQrcode(null);
+        showToast(`WhatsApp conectado${connectedData.phone ? ` (${formatPhoneFromDigits(connectedData.phone)})` : ''}!`);
+      });
     } catch (err) {
       setWaError(err.message || 'Erro ao conectar WhatsApp');
     } finally {
@@ -123,9 +100,8 @@ export default function SettingsPage() {
     setWaError(null);
     try {
       await api.delete('/whatsapp/disconnect');
-      stopPolling();
       setWaQrcode(null);
-      setWaStatus({ connected: false, phone: null, state: 'disconnected' });
+      resetWa();
       showToast('WhatsApp desconectado.');
     } catch (err) {
       setWaError(err.message || 'Erro ao desconectar');
@@ -134,7 +110,6 @@ export default function SettingsPage() {
     }
   }
 
-  // Normalize qrcode to a usable data URL (Evolution sometimes returns raw base64)
   const qrSrc = waQrcode
     ? waQrcode.startsWith('data:') ? waQrcode : `data:image/png;base64,${waQrcode}`
     : null;
@@ -189,22 +164,22 @@ export default function SettingsPage() {
       <div className="card p-6">
         <div className="flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
-            {waStatus.connected ? <Wifi size={22} className="text-green-600" /> : <WifiOff size={22} className="text-red-500" />}
+            {connected ? <Wifi size={22} className="text-green-600" /> : <WifiOff size={22} className="text-red-500" />}
           </div>
           <div className="flex-1">
             <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
               <Wifi size={18} />Conexão WhatsApp
             </h2>
             <div className="flex items-center gap-2">
-              <div className={`h-2.5 w-2.5 rounded-full ${waStatus.connected ? 'bg-emerald-500' : waStatus.state === 'connecting' ? 'bg-amber-500' : 'bg-red-500'}`} />
-              <span className={`text-sm font-medium ${waStatus.connected ? 'text-emerald-600' : waStatus.state === 'connecting' ? 'text-amber-600' : 'text-red-600'}`}>
-                {waStatus.connected
-                  ? <>Conectado{waStatus.phone ? ` — ${formatPhoneFromDigits(waStatus.phone)}` : ''}</>
-                  : waStatus.state === 'connecting' ? 'Conectando...' : 'Desconectado'}
+              <div className={`h-2.5 w-2.5 rounded-full ${connected ? 'bg-emerald-500' : state === 'connecting' ? 'bg-amber-500' : 'bg-red-500'}`} />
+              <span className={`text-sm font-medium ${connected ? 'text-emerald-600' : state === 'connecting' ? 'text-amber-600' : 'text-red-600'}`}>
+                {connected
+                  ? <>Conectado{phone ? ` — ${formatPhoneFromDigits(phone)}` : ''}</>
+                  : state === 'connecting' ? 'Conectando...' : 'Desconectado'}
               </span>
             </div>
           </div>
-          {!waStatus.connected ? (
+          {!connected ? (
             <button
               onClick={handleConnectWhatsApp}
               disabled={waConnecting}
@@ -231,7 +206,7 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {qrSrc && !waStatus.connected && (
+        {qrSrc && !connected && (
           <div className="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-6">
             <div className="flex gap-8">
               <div className="flex h-56 w-56 flex-shrink-0 items-center justify-center rounded-xl border-2 border-gray-200 bg-white p-2">
