@@ -180,6 +180,52 @@ async function fetchInstances(pharmacyId) {
 }
 
 /**
+ * Fetches all chats stored in Evolution for this instance.
+ * Evolution v2 returns different shapes depending on version, so we normalize.
+ */
+async function findChats(pharmacyId) {
+  const instanceName = instanceNameFor(pharmacyId);
+  try {
+    // v2 prefers POST /chat/findChats/{instance} with a `where` body
+    const data = await request('POST', `/chat/findChats/${encodeURIComponent(instanceName)}`, {});
+    const list = Array.isArray(data) ? data : (data?.records || data?.chats || []);
+    return list;
+  } catch (err) {
+    if (err.status === 404) return [];
+    // Some versions use GET
+    try {
+      const data = await request('GET', `/chat/findChats/${encodeURIComponent(instanceName)}`);
+      return Array.isArray(data) ? data : (data?.records || []);
+    } catch (_) {
+      throw err;
+    }
+  }
+}
+
+/**
+ * Fetches messages for a specific chat (remoteJid).
+ */
+async function findMessages(pharmacyId, remoteJid, limit = 20) {
+  const instanceName = instanceNameFor(pharmacyId);
+  try {
+    const data = await request(
+      'POST',
+      `/chat/findMessages/${encodeURIComponent(instanceName)}`,
+      {
+        where: { key: { remoteJid } },
+        limit,
+      }
+    );
+    // v2 returns { total, pages, currentPage, records: [...] } OR just an array
+    if (Array.isArray(data)) return data;
+    return data?.records || data?.messages?.records || data?.messages || [];
+  } catch (err) {
+    if (err.status === 404) return [];
+    throw err;
+  }
+}
+
+/**
  * Deletes an instance. Tries logout first so Baileys disconnects cleanly.
  */
 async function deleteInstance(pharmacyId) {
@@ -206,6 +252,8 @@ module.exports = {
   connectInstance,
   getConnectionState,
   fetchInstances,
+  findChats,
+  findMessages,
   deleteInstance,
   getWebhookInfo,
   setWebhook,

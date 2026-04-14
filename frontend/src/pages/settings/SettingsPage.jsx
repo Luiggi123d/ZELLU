@@ -26,6 +26,7 @@ export default function SettingsPage() {
   const [waQrcode, setWaQrcode] = useState(null);
   const [waConnecting, setWaConnecting] = useState(false);
   const [waError, setWaError] = useState(null);
+  const [syncing, setSyncing] = useState(false);
 
   const [pharmacy, setPharmacy] = useState({
     name: '', cnpj: '', phone: '', address: '', email: '',
@@ -66,7 +67,7 @@ export default function SettingsPage() {
         throw new Error('QR Code não retornado pela Evolution API');
       }
       setWaQrcode(data.qrcode);
-      startPolling((connectedData) => {
+      startPolling(async (connectedData) => {
         setStatus({
           connected: true,
           phone: connectedData.phone,
@@ -74,6 +75,11 @@ export default function SettingsPage() {
         });
         setWaQrcode(null);
         showToast(`WhatsApp conectado${connectedData.phone ? ` (${formatPhoneFromDigits(connectedData.phone)})` : ''}!`);
+        // Kick off history sync so the CRM has data immediately
+        try {
+          await api.post('/whatsapp/sync-history', {});
+          showToast('Histórico sincronizado!');
+        } catch (_) { /* backend webhook already triggers it; ignore */ }
       });
     } catch (err) {
       setWaError(err.message || 'Erro ao conectar WhatsApp');
@@ -92,6 +98,18 @@ export default function SettingsPage() {
       setWaError(err.message || 'Erro ao gerar novo QR');
     } finally {
       setWaConnecting(false);
+    }
+  }
+
+  async function handleSyncHistory() {
+    setSyncing(true);
+    try {
+      const r = await api.post('/whatsapp/sync-history', {});
+      showToast(`Histórico sincronizado: ${r.contactsUpserted || 0} contatos, ${r.messagesInserted || 0} mensagens`);
+    } catch (err) {
+      showToast(`Erro ao sincronizar: ${err.message}`);
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -203,6 +221,23 @@ export default function SettingsPage() {
         {waError && (
           <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">
             {waError}
+          </div>
+        )}
+
+        {connected && (
+          <div className="mt-4 flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 p-3">
+            <div>
+              <p className="text-sm font-medium text-gray-900">Sincronizar histórico</p>
+              <p className="text-xs text-gray-500">Importa contatos e mensagens recentes da Evolution API para o Zellu.</p>
+            </div>
+            <button
+              onClick={handleSyncHistory}
+              disabled={syncing}
+              className="flex h-9 items-center gap-2 rounded-lg border border-zellu-300 bg-white px-4 text-xs font-medium text-zellu-700 hover:bg-zellu-50 disabled:opacity-50"
+            >
+              {syncing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              {syncing ? 'Sincronizando...' : 'Sincronizar agora'}
+            </button>
           </div>
         )}
 

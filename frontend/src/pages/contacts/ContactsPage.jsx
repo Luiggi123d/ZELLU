@@ -25,7 +25,7 @@ export default function ContactsPage() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!pharmacyId) return;
+      if (!pharmacyId) { setLoading(false); return; }
       setLoading(true);
       setError(null);
       const { data, error: err } = await supabase

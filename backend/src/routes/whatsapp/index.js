@@ -2,6 +2,7 @@ const { Router } = require('express');
 const { supabaseAdmin } = require('../../config/supabase');
 const { requireAuth, requirePharmacy } = require('../../middleware/auth');
 const evolution = require('../../services/evolutionApi');
+const { syncHistoryForPharmacy } = require('../../services/syncHistory');
 
 const router = Router();
 
@@ -157,6 +158,21 @@ router.post('/fix-webhook', requireAuth, requirePharmacy, async (req, res, next)
 });
 
 // ============================================================
+// POST /api/whatsapp/sync-history
+// Pulls chats + recent messages from Evolution API and imports
+// them into Supabase so the CRM has data immediately after pairing.
+// ============================================================
+router.post('/sync-history', requireAuth, requirePharmacy, async (req, res, next) => {
+  try {
+    const result = await syncHistoryForPharmacy(req.pharmacyId);
+    invalidateCache(req.pharmacyId);
+    return res.json({ ok: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
 // GET /api/whatsapp/webhook-info
 // Returns the current webhook config reported by Evolution API,
 // plus the expected URL so we can diagnose mismatches.
@@ -282,6 +298,17 @@ async function handleConnectionUpdate(pharmacyId, instanceName, data) {
     );
 
   invalidateCache(pharmacyId);
+
+  // Fire-and-forget history sync once the instance comes online.
+  // Evolution sometimes needs a few seconds after `open` before
+  // findChats returns results, so we delay a bit.
+  if (connected) {
+    setTimeout(() => {
+      syncHistoryForPharmacy(pharmacyId)
+        .then((r) => console.log(`[sync-history] pharmacy=${pharmacyId}`, r))
+        .catch((err) => console.error(`[sync-history] pharmacy=${pharmacyId} error:`, err.message));
+    }, 5000);
+  }
 }
 
 async function handleMessagesUpsert(pharmacyId, instanceName, data) {

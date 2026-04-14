@@ -35,7 +35,7 @@ export default function ConversationsPage() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!pharmacyId) return;
+      if (!pharmacyId) { setLoading(false); return; }
       setLoading(true);
       setError(null);
       const { data, error: err } = await supabase
@@ -46,12 +46,28 @@ export default function ConversationsPage() {
       if (err) setError(err.message);
       else {
         setConversations(data || []);
-        if ((data || []).length > 0) setSelected(data[0]);
+        if ((data || []).length > 0) setSelected((prev) => prev || data[0]);
       }
       setLoading(false);
     }
     load();
     return () => { cancelled = true; };
+  }, [pharmacyId]);
+
+  // Realtime subscription — refresh conversation list when anything changes.
+  useEffect(() => {
+    if (!pharmacyId) return;
+    const channel = supabase
+      .channel(`conversations-${pharmacyId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'conversations' }, async () => {
+        const { data } = await supabase
+          .from('conversations')
+          .select('*, contacts(id, name, phone)')
+          .order('last_message_at', { ascending: false, nullsFirst: false });
+        setConversations(data || []);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [pharmacyId]);
 
   useEffect(() => {
@@ -70,6 +86,22 @@ export default function ConversationsPage() {
     }
     loadMessages();
     return () => { cancelled = true; };
+  }, [selected?.id]);
+
+  // Realtime subscription for messages in the currently-selected conversation.
+  useEffect(() => {
+    if (!selected?.id) return;
+    const channel = supabase
+      .channel(`messages-${selected.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${selected.id}` },
+        (payload) => {
+          setMessages((prev) => [...prev, payload.new]);
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [selected?.id]);
 
   const filtered = useMemo(() => {

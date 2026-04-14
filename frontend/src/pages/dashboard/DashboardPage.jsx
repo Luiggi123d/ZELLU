@@ -21,7 +21,7 @@ export default function DashboardPage() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!pharmacyId) return;
+      if (!pharmacyId) { setLoading(false); return; }
       setLoading(true);
       setError(null);
       try {
