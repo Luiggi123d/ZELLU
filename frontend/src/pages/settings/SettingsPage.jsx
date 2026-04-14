@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
-import { Wifi, WifiOff, Building2, Bell, CreditCard, Save, CheckCircle } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Wifi, WifiOff, Building2, Bell, CreditCard, Save, CheckCircle, Loader2, RefreshCw } from 'lucide-react';
 import { maskCNPJ, maskPhone } from '../../lib/masks';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
+import { api } from '../../lib/api';
+import { formatPhoneFromDigits } from '../../lib/dataHelpers';
 import { SkeletonCard } from '../../components/ui/Skeleton';
 import { showToast } from '../../components/ui/Toast';
 
@@ -11,8 +13,13 @@ export default function SettingsPage() {
   const pharmacyId = profile?.pharmacy_id;
 
   const [loading, setLoading] = useState(true);
-  const [whatsappConnected, setWhatsappConnected] = useState(false);
-  const [showQR, setShowQR] = useState(false);
+
+  // WhatsApp state
+  const [waStatus, setWaStatus] = useState({ connected: false, phone: null, state: 'disconnected' });
+  const [waQrcode, setWaQrcode] = useState(null);
+  const [waConnecting, setWaConnecting] = useState(false);
+  const [waError, setWaError] = useState(null);
+  const pollRef = useRef(null);
   const [pharmacy, setPharmacy] = useState({
     name: '', cnpj: '', phone: '', address: '', email: '',
   });
@@ -34,6 +41,103 @@ export default function SettingsPage() {
     });
     setLoading(false);
   }, [profile]);
+
+  // ============================================================
+  // WhatsApp — initial status check + polling lifecycle
+  // ============================================================
+  async function fetchStatus() {
+    try {
+      const data = await api.get('/whatsapp/status');
+      setWaStatus({
+        connected: !!data.connected,
+        phone: data.phone || null,
+        state: data.state || (data.connected ? 'open' : 'disconnected'),
+      });
+      return data;
+    } catch (err) {
+      // silent — polling will retry
+      return null;
+    }
+  }
+
+  useEffect(() => {
+    if (!pharmacyId) return;
+    fetchStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pharmacyId]);
+
+  function startPolling() {
+    stopPolling();
+    pollRef.current = setInterval(async () => {
+      const data = await fetchStatus();
+      if (data?.connected) {
+        stopPolling();
+        setWaQrcode(null);
+        showToast(`WhatsApp conectado${data.phone ? ` (${formatPhoneFromDigits(data.phone)})` : ''}!`);
+      }
+    }, 3000);
+  }
+
+  function stopPolling() {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }
+
+  useEffect(() => () => stopPolling(), []);
+
+  async function handleConnectWhatsApp() {
+    setWaConnecting(true);
+    setWaError(null);
+    setWaQrcode(null);
+    try {
+      const data = await api.post('/whatsapp/connect', {});
+      if (!data.qrcode) {
+        throw new Error('QR Code não retornado pela Evolution API');
+      }
+      setWaQrcode(data.qrcode);
+      startPolling();
+    } catch (err) {
+      setWaError(err.message || 'Erro ao conectar WhatsApp');
+    } finally {
+      setWaConnecting(false);
+    }
+  }
+
+  async function handleRefreshQr() {
+    setWaConnecting(true);
+    setWaError(null);
+    try {
+      const data = await api.post('/whatsapp/connect', {});
+      if (data.qrcode) setWaQrcode(data.qrcode);
+    } catch (err) {
+      setWaError(err.message || 'Erro ao gerar novo QR');
+    } finally {
+      setWaConnecting(false);
+    }
+  }
+
+  async function handleDisconnectWhatsApp() {
+    setWaConnecting(true);
+    setWaError(null);
+    try {
+      await api.delete('/whatsapp/disconnect');
+      stopPolling();
+      setWaQrcode(null);
+      setWaStatus({ connected: false, phone: null, state: 'disconnected' });
+      showToast('WhatsApp desconectado.');
+    } catch (err) {
+      setWaError(err.message || 'Erro ao desconectar');
+    } finally {
+      setWaConnecting(false);
+    }
+  }
+
+  // Normalize qrcode to a usable data URL (Evolution sometimes returns raw base64)
+  const qrSrc = waQrcode
+    ? waQrcode.startsWith('data:') ? waQrcode : `data:image/png;base64,${waQrcode}`
+    : null;
 
   function updatePharmacy(field) {
     return (e) => {
@@ -85,47 +189,76 @@ export default function SettingsPage() {
       <div className="card p-6">
         <div className="flex items-center gap-3">
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-green-100">
-            {whatsappConnected ? <Wifi size={22} className="text-green-600" /> : <WifiOff size={22} className="text-red-500" />}
+            {waStatus.connected ? <Wifi size={22} className="text-green-600" /> : <WifiOff size={22} className="text-red-500" />}
           </div>
           <div className="flex-1">
             <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-900">
               <Wifi size={18} />Conexão WhatsApp
             </h2>
             <div className="flex items-center gap-2">
-              <div className={`h-2.5 w-2.5 rounded-full ${whatsappConnected ? 'bg-emerald-500' : 'bg-red-500'}`} />
-              <span className={`text-sm font-medium ${whatsappConnected ? 'text-emerald-600' : 'text-red-600'}`}>
-                {whatsappConnected ? 'Conectado' : 'Desconectado'}
+              <div className={`h-2.5 w-2.5 rounded-full ${waStatus.connected ? 'bg-emerald-500' : waStatus.state === 'connecting' ? 'bg-amber-500' : 'bg-red-500'}`} />
+              <span className={`text-sm font-medium ${waStatus.connected ? 'text-emerald-600' : waStatus.state === 'connecting' ? 'text-amber-600' : 'text-red-600'}`}>
+                {waStatus.connected
+                  ? <>Conectado{waStatus.phone ? ` — ${formatPhoneFromDigits(waStatus.phone)}` : ''}</>
+                  : waStatus.state === 'connecting' ? 'Conectando...' : 'Desconectado'}
               </span>
             </div>
           </div>
-          {!whatsappConnected ? (
-            <button onClick={() => setShowQR(true)} className="flex h-10 items-center gap-2 rounded-lg bg-emerald-600 px-5 text-sm font-medium text-white hover:bg-emerald-700">
-              <Wifi size={16} />Conectar WhatsApp
+          {!waStatus.connected ? (
+            <button
+              onClick={handleConnectWhatsApp}
+              disabled={waConnecting}
+              className="flex h-10 items-center gap-2 rounded-lg bg-emerald-600 px-5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {waConnecting ? <Loader2 size={16} className="animate-spin" /> : <Wifi size={16} />}
+              {waConnecting ? 'Gerando QR...' : 'Conectar WhatsApp'}
             </button>
           ) : (
-            <button onClick={() => { setWhatsappConnected(false); setShowQR(false); }} className="flex h-10 items-center gap-2 rounded-lg border border-red-300 px-5 text-sm font-medium text-red-600 hover:bg-red-50">
-              <WifiOff size={16} />Desconectar
+            <button
+              onClick={handleDisconnectWhatsApp}
+              disabled={waConnecting}
+              className="flex h-10 items-center gap-2 rounded-lg border border-red-300 px-5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+            >
+              {waConnecting ? <Loader2 size={16} className="animate-spin" /> : <WifiOff size={16} />}
+              Desconectar
             </button>
           )}
         </div>
-        {showQR && !whatsappConnected && (
+
+        {waError && (
+          <div className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-600">
+            {waError}
+          </div>
+        )}
+
+        {qrSrc && !waStatus.connected && (
           <div className="mt-6 rounded-lg border border-gray-200 bg-gray-50 p-6">
             <div className="flex gap-8">
-              <div className="flex h-48 w-48 flex-shrink-0 items-center justify-center rounded-xl border-2 border-dashed border-gray-300 bg-white">
-                <div className="text-center">
-                  <Wifi size={32} className="mx-auto text-gray-300" />
-                  <p className="mt-2 text-xs text-gray-400">QR Code aparecerá aqui</p>
-                </div>
+              <div className="flex h-56 w-56 flex-shrink-0 items-center justify-center rounded-xl border-2 border-gray-200 bg-white p-2">
+                <img src={qrSrc} alt="QR Code WhatsApp" className="h-full w-full object-contain" />
               </div>
-              <div className="space-y-4">
+              <div className="flex flex-1 flex-col">
                 <h3 className="font-semibold text-gray-900">Como conectar:</h3>
-                <div className="space-y-3">
-                  {['Abra o WhatsApp no seu celular', 'Toque nos três pontinhos > Aparelhos conectados', 'Aponte a câmera para o QR Code'].map((text, i) => (
+                <div className="mt-4 space-y-3">
+                  {['Abra o WhatsApp no seu celular', 'Toque nos três pontinhos > Aparelhos conectados', 'Toque em "Conectar um aparelho"', 'Aponte a câmera para o QR Code ao lado'].map((text, i) => (
                     <div key={i} className="flex items-start gap-3">
                       <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-zellu-600 text-xs font-bold text-white">{i + 1}</span>
                       <p className="text-sm text-gray-600">{text}</p>
                     </div>
                   ))}
+                </div>
+                <div className="mt-auto flex items-center justify-between pt-4">
+                  <p className="flex items-center gap-1.5 text-xs text-amber-600">
+                    <Loader2 size={12} className="animate-spin" />
+                    Aguardando leitura do QR...
+                  </p>
+                  <button
+                    onClick={handleRefreshQr}
+                    disabled={waConnecting}
+                    className="flex items-center gap-1 text-xs text-zellu-600 hover:underline disabled:opacity-50"
+                  >
+                    <RefreshCw size={12} />Gerar novo QR
+                  </button>
                 </div>
               </div>
             </div>
