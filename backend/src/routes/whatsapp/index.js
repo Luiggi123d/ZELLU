@@ -213,8 +213,15 @@ router.post('/webhook', async (req, res) => {
   // Always 200 fast so Evolution doesn't retry
   res.status(200).json({ received: true });
 
+  const body = req.body || {};
+  console.log('[webhook] RECEBIDO:', JSON.stringify({
+    event: body.event || body.type,
+    instance: body.instance || body.instanceName,
+    dataKeys: body.data ? Object.keys(body.data) : [],
+    raw: JSON.stringify(body).slice(0, 500),
+  }));
+
   try {
-    const body = req.body || {};
     // Payload shapes we handle:
     //  { event, instance, data, ... }
     //  { event: 'CONNECTION_UPDATE', instance: 'zellu-xxx', data: { state, ... } }
@@ -398,5 +405,38 @@ function extractMessageContent(message) {
     '[mídia]'
   );
 }
+
+// ============================================================
+// GET /api/whatsapp/debug-webhook — TEMPORÁRIO, remover depois
+// Lista o webhook configurado para cada instância no banco.
+// ============================================================
+router.get('/debug-webhook', async (_req, res) => {
+  const env = require('../../config/env');
+
+  const { data: instances } = await supabaseAdmin
+    .from('whatsapp_instances')
+    .select('*');
+
+  const results = [];
+  for (const inst of (instances || [])) {
+    try {
+      const info = await evolution.getWebhookInfo(inst.pharmacy_id);
+      results.push({
+        pharmacy_id: inst.pharmacy_id,
+        instance_name: inst.instance_name,
+        status: inst.status,
+        ...info,
+      });
+    } catch (err) {
+      results.push({ pharmacy_id: inst.pharmacy_id, error: err.message });
+    }
+  }
+
+  return res.json({
+    backendPublicUrl: env.backendPublicUrl,
+    expectedWebhookUrl: `${(env.backendPublicUrl || '').replace(/\/+$/, '')}/api/whatsapp/webhook`,
+    instances: results,
+  });
+});
 
 module.exports = router;
