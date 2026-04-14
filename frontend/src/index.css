@@ -1,0 +1,27 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  @apply bg-gray-50 text-gray-900 antialiased;
+  font-size: 14px;
+}
+
+/* Standardized card shadow */
+.card {
+  @apply rounded-xl bg-white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+/* Standardized input height */
+input, select, textarea, button {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+input:not([type="checkbox"]):not([type="radio"]),
+select {
+  min-height: 40px;
+}
