@@ -12,6 +12,11 @@ const env = {
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET,
   resendApiKey: process.env.RESEND_API_KEY,
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:5173',
+  // Comma-separated list of allowed origins (in addition to frontendUrl)
+  allowedOrigins: (process.env.ALLOWED_ORIGINS || 'https://zellu-orpin.vercel.app,http://localhost:5173,http://localhost:3000')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
 };
 
 module.exports = env;

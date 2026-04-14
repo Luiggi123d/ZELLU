@@ -10,8 +10,26 @@ const errorHandler = require('./middleware/errorHandler');
 const app = express();
 
 // Security
-app.use(helmet());
-app.use(cors({ origin: env.frontendUrl, credentials: true }));
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+
+// CORS — allowlist + Vercel preview deployments
+const allowlist = new Set([env.frontendUrl, ...env.allowedOrigins]);
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow no-origin (curl, health checks, server-to-server)
+    if (!origin) return callback(null, true);
+    // Allow exact matches from allowlist
+    if (allowlist.has(origin)) return callback(null, true);
+    // Allow any Vercel preview deploy for this project
+    if (/^https:\/\/zellu(-[a-z0-9-]+)?\.vercel\.app$/.test(origin)) return callback(null, true);
+    return callback(new Error(`CORS blocked: ${origin}`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+};
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // Rate limiting
 app.use(rateLimit({
@@ -29,6 +47,11 @@ app.use(express.urlencoded({ extended: true }));
 if (env.nodeEnv !== 'test') {
   app.use(morgan('dev'));
 }
+
+// Root healthcheck (for Railway / uptime monitors)
+app.get('/', (_req, res) => {
+  res.json({ name: 'Zellu API', status: 'ok', allowedOrigins: [...allowlist] });
+});
 
 // Routes
 app.use('/api', routes);
