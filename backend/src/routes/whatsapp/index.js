@@ -210,6 +210,7 @@ router.delete('/disconnect', requireAuth, requirePharmacy, async (req, res, next
 // by parsing the instance name (`zellu-{pharmacyId}`).
 // ============================================================
 router.post('/webhook', async (req, res) => {
+  console.log('[webhook] HIT', req.headers['content-length'] || 0, 'bytes');
   // Always 200 fast so Evolution doesn't retry
   res.status(200).json({ received: true });
 

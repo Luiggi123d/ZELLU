@@ -31,17 +31,20 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
-// Rate limiting
+// Parsing — raise limit because Evolution API webhooks include
+// base64-encoded media in MESSAGES_UPSERT payloads.
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Rate limiting — skip the Evolution API webhook, which gets hammered
+// from a single IP and must never be throttled.
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.path === '/api/whatsapp/webhook',
 }));
-
-// Parsing
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
 // Logging
 if (env.nodeEnv !== 'test') {
