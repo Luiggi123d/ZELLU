@@ -160,6 +160,7 @@ export default function ContactsPage() {
             ctaLabel={null}
             ctaTo={null}
             compact
+            whatsappAware={false}
           />
         </div>
       ) : (
