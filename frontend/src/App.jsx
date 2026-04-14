@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from './components/layout/AppLayout';
+import ProtectedRoute from './components/auth/ProtectedRoute';
 import { ToastContainer } from './components/ui/Toast';
 import LoginPage from './pages/auth/LoginPage';
 import SignUpPage from './pages/auth/SignUpPage';
@@ -18,7 +19,13 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignUpPage />} />
 
-        <Route element={<AppLayout />}>
+        <Route
+          element={
+            <ProtectedRoute>
+              <AppLayout />
+            </ProtectedRoute>
+          }
+        >
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/contacts" element={<ContactsPage />} />
           <Route path="/contacts/:id" element={<ContactDetailPage />} />
