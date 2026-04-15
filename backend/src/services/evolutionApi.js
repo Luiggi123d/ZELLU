@@ -245,6 +245,19 @@ async function deleteInstance(pharmacyId) {
   }
 }
 
+/**
+ * Envia mensagem de texto via Evolution API.
+ */
+async function sendTextMessage(pharmacyId, phone, text) {
+  const instanceName = instanceNameFor(pharmacyId);
+  // Garante formato internacional sem + e sem caracteres especiais
+  const number = String(phone).replace(/\D/g, '');
+  return request('POST', `/message/sendText/${encodeURIComponent(instanceName)}`, {
+    number,
+    text,
+  });
+}
+
 module.exports = {
   instanceNameFor,
   webhookUrl,
@@ -257,4 +270,5 @@ module.exports = {
   deleteInstance,
   getWebhookInfo,
   setWebhook,
+  sendTextMessage,
 };

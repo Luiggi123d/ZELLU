@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Megaphone, Clock, CheckCircle, Send, X, Calendar, ArrowLeft, Wifi } from 'lucide-react';
+import { Megaphone, Clock, CheckCircle, Send, X, Calendar, ArrowLeft, Wifi, Loader2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
+import { api } from '../../lib/api';
 import { SkeletonCard } from '../../components/ui/Skeleton';
 import { showToast } from '../../components/ui/Toast';
 import EmptyState from '../../components/ui/EmptyState';
@@ -33,30 +34,148 @@ function formatDate(d) {
   return new Date(d).toLocaleDateString('pt-BR');
 }
 
+const SPEED_MODES = [
+  {
+    key: 'safe',
+    label: 'Seguro',
+    desc: '15-30s entre envios',
+    risk: 'Risco muito baixo de ban',
+    riskColor: 'text-emerald-600',
+    limit: 50,
+    avgDelaySec: 22,
+  },
+  {
+    key: 'normal',
+    label: 'Normal',
+    desc: '8-15s entre envios',
+    risk: 'Risco moderado',
+    riskColor: 'text-amber-600',
+    limit: 80,
+    avgDelaySec: 11,
+  },
+  {
+    key: 'fast',
+    label: 'Rápido',
+    desc: '3-8s entre envios',
+    risk: 'Risco elevado de ban',
+    riskColor: 'text-red-600',
+    limit: 150,
+    avgDelaySec: 5,
+  },
+];
+
 function ApprovalModal({ campaign, onConfirm, onClose }) {
+  const [speedMode, setSpeedMode] = useState('safe');
+  const [varyMessages, setVaryMessages] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  const selectedMode = SPEED_MODES.find((m) => m.key === speedMode);
+  const recipients = campaign.total_recipients || 0;
+  const effective = Math.min(recipients, selectedMode.limit);
+  const estimatedMinutes = Math.ceil((effective * selectedMode.avgDelaySec) / 60);
+  const willExceedLimit = recipients > selectedMode.limit;
+
+  async function handleConfirm() {
+    setSubmitting(true);
+    try {
+      await onConfirm({ speedMode, varyMessages });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="max-h-[80vh] w-full max-w-lg overflow-y-auto card p-6" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto card p-6" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-lg font-bold text-gray-900">Confirmar aprovação</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
         <p className="mb-4 text-sm text-gray-500">{campaign.name}</p>
+
         <div className="mb-4 rounded-lg bg-emerald-50 p-4">
           <p className="mb-1 text-xs font-semibold text-emerald-700">Mensagem que será enviada:</p>
           <p className="text-sm leading-relaxed text-gray-700">{campaign.message_template}</p>
         </div>
-        <p className="mb-4 text-xs text-gray-500">Destinatários previstos: {campaign.total_recipients || 0}</p>
-        {campaign.scheduled_at && (
-          <p className="mb-6 flex items-center gap-1.5 text-sm text-gray-500">
-            <Calendar size={14} />Envio sugerido: {formatDate(campaign.scheduled_at)}
+
+        <p className="mb-4 text-xs text-gray-500">Destinatários previstos: {recipients}</p>
+
+        {/* Speed mode selector */}
+        <div className="mb-4">
+          <p className="mb-2 text-sm font-semibold text-gray-700">Velocidade de envio</p>
+          <div className="space-y-2">
+            {SPEED_MODES.map((mode) => (
+              <label
+                key={mode.key}
+                className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
+                  speedMode === mode.key ? 'border-zellu-600 bg-zellu-50' : 'border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="speedMode"
+                  value={mode.key}
+                  checked={speedMode === mode.key}
+                  onChange={() => setSpeedMode(mode.key)}
+                  className="mt-0.5"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-gray-900">{mode.label}</span>
+                    <span className={`text-xs font-medium ${mode.riskColor}`}>{mode.risk}</span>
+                  </div>
+                  <p className="text-xs text-gray-500">{mode.desc} · limite {mode.limit}/dia</p>
+                </div>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Vary messages toggle */}
+        <label className="mb-4 flex cursor-pointer items-center gap-3 rounded-lg border border-gray-200 p-3">
+          <input
+            type="checkbox"
+            checked={varyMessages}
+            onChange={(e) => setVaryMessages(e.target.checked)}
+            className="h-4 w-4"
+          />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-gray-900">Variar mensagem automaticamente</p>
+            <p className="text-xs text-gray-500">Adiciona saudações aleatórias para humanizar o envio</p>
+          </div>
+        </label>
+
+        {/* Estimated time */}
+        <div className="mb-4 rounded-lg bg-blue-50 p-3">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-blue-700">
+            <Clock size={12} />Tempo estimado: ~{estimatedMinutes} minuto{estimatedMinutes === 1 ? '' : 's'} para {effective} envios
           </p>
-        )}
+          {willExceedLimit && (
+            <p className="mt-1 text-xs text-amber-700">
+              ⚠ {recipients - selectedMode.limit} contatos serão reagendados para o próximo dia (limite diário: {selectedMode.limit})
+            </p>
+          )}
+        </div>
+
+        {/* Ban warning */}
+        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+          <strong>Aviso:</strong> envios em massa para números que não interagiram recentemente aumentam o risco de banimento do WhatsApp. Recomendamos o modo Seguro para campanhas frias.
+        </div>
+
         <div className="flex gap-2">
-          <button onClick={onConfirm} className="flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 text-sm font-medium text-white hover:bg-emerald-700">
-            <CheckCircle size={16} />Confirmar aprovação
+          <button
+            onClick={handleConfirm}
+            disabled={submitting}
+            className="flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-60"
+          >
+            {submitting ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+            {submitting ? 'Enfileirando…' : 'Aprovar e enfileirar'}
           </button>
-          <button onClick={onClose} className="flex h-10 items-center gap-2 rounded-lg border border-gray-300 px-4 text-sm text-gray-600 hover:bg-gray-50">
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            className="flex h-10 items-center gap-2 rounded-lg border border-gray-300 px-4 text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-60"
+          >
             <ArrowLeft size={14} />Voltar
           </button>
         </div>
@@ -109,29 +228,43 @@ export default function CampaignsPage() {
     return campaigns.filter((c) => tab.dbStatuses.includes(c.status));
   }, [campaigns, activeTab]);
 
-  async function approve(campaign) {
+  async function approve(campaign, { speedMode = 'safe', varyMessages = true } = {}) {
     const prevStatus = campaign.status;
-    setCampaigns((prev) => prev.map((c) => (c.id === campaign.id ? { ...c, status: 'scheduled' } : c)));
-    setApprovalTarget(null);
 
-    const { error: err } = await supabase
-      .from('campaigns')
-      .update({ status: 'scheduled', scheduled_at: new Date(Date.now() + 15 * 60 * 1000).toISOString() })
-      .eq('id', campaign.id);
+    // Optimistic: marca como running na UI
+    setCampaigns((prev) =>
+      prev.map((c) =>
+        c.id === campaign.id ? { ...c, status: 'running', speed_mode: speedMode, vary_messages: varyMessages } : c
+      )
+    );
 
-    if (err) {
+    try {
+      // Atualiza config da campanha (speed_mode / vary_messages)
+      const { error: updateErr } = await supabase
+        .from('campaigns')
+        .update({ speed_mode: speedMode, vary_messages: varyMessages, status: 'running' })
+        .eq('id', campaign.id);
+      if (updateErr) throw new Error(updateErr.message);
+
+      // Chama backend para enfileirar
+      const result = await api.post(`/whatsapp/campaigns/${campaign.id}/enqueue`, {
+        speedMode,
+        varyMessages,
+      });
+
+      setApprovalTarget(null);
+
+      const queued = result?.queued ?? result?.count ?? 0;
+      const estimatedMinutes = result?.estimatedMinutes ?? null;
+      const msg = estimatedMinutes
+        ? `Campanha "${campaign.name}" enfileirada: ${queued} envios em ~${estimatedMinutes} min`
+        : `Campanha "${campaign.name}" enfileirada: ${queued} envios`;
+      showToast(msg);
+    } catch (err) {
       // rollback
       setCampaigns((prev) => prev.map((c) => (c.id === campaign.id ? { ...c, status: prevStatus } : c)));
-      showToast(`Erro ao aprovar: ${err.message}`);
-      return;
+      showToast(`Erro ao enfileirar: ${err.message}`);
     }
-
-    showToast(`Campanha "${campaign.name}" aprovada! Será enviada em 15 minutos.`, {
-      onUndo: async () => {
-        setCampaigns((prev) => prev.map((c) => (c.id === campaign.id ? { ...c, status: prevStatus } : c)));
-        await supabase.from('campaigns').update({ status: prevStatus, scheduled_at: null }).eq('id', campaign.id);
-      },
-    });
   }
 
   async function reject(campaign) {
@@ -286,7 +419,7 @@ export default function CampaignsPage() {
       {approvalTarget && (
         <ApprovalModal
           campaign={approvalTarget}
-          onConfirm={() => approve(approvalTarget)}
+          onConfirm={(config) => approve(approvalTarget, config)}
           onClose={() => setApprovalTarget(null)}
         />
       )}

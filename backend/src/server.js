@@ -59,6 +59,10 @@ app.get('/', (_req, res) => {
 // Routes
 app.use('/api', routes);
 
+// Inicia job de envio de campanhas (anti-ban)
+const { startCampaignSenderJob } = require('./services/campaignSender');
+startCampaignSenderJob();
+
 // Error handling
 app.use(errorHandler);
 

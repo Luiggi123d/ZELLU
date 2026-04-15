@@ -451,6 +451,89 @@ function extractMessageContent(message) {
 }
 
 // ============================================================
+// POST /api/whatsapp/campaigns/:id/enqueue
+// Enfileira os envios de uma campanha aprovada com delay anti-ban.
+// ============================================================
+router.post('/campaigns/:id/enqueue', requireAuth, requirePharmacy, async (req, res, next) => {
+  try {
+    const { id: campaignId } = req.params;
+    const pharmacyId = req.pharmacyId;
+
+    // Busca a campanha
+    const { data: campaign } = await supabaseAdmin
+      .from('campaigns')
+      .select('*')
+      .eq('id', campaignId)
+      .eq('pharmacy_id', pharmacyId)
+      .single();
+
+    if (!campaign) return res.status(404).json({ error: 'Campanha não encontrada' });
+
+    // Busca contatos — por tags se definidas, senão todos
+    let query = supabaseAdmin
+      .from('contacts')
+      .select('id, phone, name')
+      .eq('pharmacy_id', pharmacyId);
+    if (campaign.target_tags && campaign.target_tags.length > 0) {
+      query = query.overlaps('tags', campaign.target_tags);
+    }
+    const { data: contacts } = await query;
+
+    if (!contacts || contacts.length === 0) {
+      return res.status(400).json({ error: 'Nenhum contato encontrado para esta campanha' });
+    }
+
+    const speedMode = campaign.speed_mode || 'safe';
+    const config = {
+      safe:   { min: 15, max: 30 },
+      normal: { min: 8,  max: 15 },
+      fast:   { min: 3,  max: 8  },
+    }[speedMode];
+
+    // Monta fila com delay escalonado entre cada envio
+    let cumulativeDelay = 5; // começa após 5s
+    const queueItems = contacts.map((contact) => {
+      const delay = Math.floor(Math.random() * (config.max - config.min + 1)) + config.min;
+      cumulativeDelay += delay;
+      return {
+        campaign_id: campaignId,
+        pharmacy_id: pharmacyId,
+        contact_id: contact.id,
+        phone: contact.phone,
+        message: campaign.message_template,
+        status: 'pending',
+        scheduled_at: new Date(Date.now() + cumulativeDelay * 1000).toISOString(),
+      };
+    });
+
+    // Insere em lotes de 100
+    for (let i = 0; i < queueItems.length; i += 100) {
+      await supabaseAdmin.from('campaign_queue').insert(queueItems.slice(i, i + 100));
+    }
+
+    // Atualiza campanha para running
+    await supabaseAdmin
+      .from('campaigns')
+      .update({
+        status: 'running',
+        started_at: new Date().toISOString(),
+        total_recipients: contacts.length,
+      })
+      .eq('id', campaignId);
+
+    const estimatedMinutes = Math.ceil(cumulativeDelay / 60);
+    return res.json({
+      ok: true,
+      queued: contacts.length,
+      estimatedMinutes,
+      speedMode,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
 // GET /api/whatsapp/debug-webhook — TEMPORÁRIO, remover depois
 // Lista o webhook configurado para cada instância no banco.
 // ============================================================
