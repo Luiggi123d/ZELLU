@@ -146,9 +146,15 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
 
           const fromMe = !!(msg?.key?.fromMe);
           const content = extractMessageContent(msg?.message);
-          const timestamp = msg?.messageTimestamp
-            ? new Date(Number(msg.messageTimestamp) * 1000).toISOString()
-            : new Date().toISOString();
+          let timestamp = new Date().toISOString();
+          if (msg?.messageTimestamp) {
+            const raw = Number(msg.messageTimestamp);
+            const ms = raw > 1e12 ? raw : raw * 1000;
+            const parsed = new Date(ms);
+            if (parsed.getFullYear() >= 2020 && parsed <= new Date(Date.now() + 60000)) {
+              timestamp = parsed.toISOString();
+            }
+          }
 
           await supabaseAdmin.from('messages').insert({
             pharmacy_id: pharmacyId,

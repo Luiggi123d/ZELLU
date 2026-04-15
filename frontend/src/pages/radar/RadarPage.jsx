@@ -122,7 +122,10 @@ export default function RadarPage() {
       if (!pharmacyId) { setLoading(false); return; }
       setLoading(true);
       setError(null);
-      const { data, error: err } = await supabase.from('contacts').select('*');
+      const { data, error: err } = await supabase
+        .from('contacts')
+        .select('*')
+        .eq('pharmacy_id', pharmacyId);
       if (cancelled) return;
       if (err) setError(err.message);
       else setContacts(data || []);

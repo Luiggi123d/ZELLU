@@ -28,8 +28,8 @@ export default function Sidebar() {
     async function loadBadges() {
       if (!profile?.pharmacy_id) return;
       const [contactsRes, campaignsRes] = await Promise.all([
-        supabase.from('contacts').select('last_purchase_at'),
-        supabase.from('campaigns').select('status').eq('status', 'draft'),
+        supabase.from('contacts').select('last_purchase_at').eq('pharmacy_id', profile.pharmacy_id),
+        supabase.from('campaigns').select('status').eq('pharmacy_id', profile.pharmacy_id).eq('status', 'draft'),
       ]);
       if (cancelled) return;
       const classified = classifyForRadar(contactsRes.data || []);

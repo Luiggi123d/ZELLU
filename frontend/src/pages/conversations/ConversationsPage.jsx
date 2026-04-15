@@ -41,6 +41,7 @@ export default function ConversationsPage() {
       const { data, error: err } = await supabase
         .from('conversations')
         .select('*, contacts(id, name, phone)')
+        .eq('pharmacy_id', pharmacyId)
         .order('last_message_at', { ascending: false, nullsFirst: false });
       if (cancelled) return;
       if (err) setError(err.message);
@@ -63,6 +64,7 @@ export default function ConversationsPage() {
         const { data } = await supabase
           .from('conversations')
           .select('*, contacts(id, name, phone)')
+          .eq('pharmacy_id', pharmacyId)
           .order('last_message_at', { ascending: false, nullsFirst: false });
         setConversations(data || []);
       })
@@ -78,6 +80,7 @@ export default function ConversationsPage() {
       const { data, error: err } = await supabase
         .from('messages')
         .select('*')
+        .eq('pharmacy_id', pharmacyId)
         .eq('conversation_id', selected.id)
         .order('created_at', { ascending: true });
       if (cancelled) return;

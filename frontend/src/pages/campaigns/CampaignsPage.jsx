@@ -84,6 +84,7 @@ export default function CampaignsPage() {
       const { data, error: err } = await supabase
         .from('campaigns')
         .select('*')
+        .eq('pharmacy_id', pharmacyId)
         .order('created_at', { ascending: false });
       if (cancelled) return;
       if (err) setError(err.message);

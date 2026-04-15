@@ -26,8 +26,8 @@ export default function DashboardPage() {
       setError(null);
       try {
         const [contactsRes, campaignsRes] = await Promise.all([
-          supabase.from('contacts').select('*'),
-          supabase.from('campaigns').select('*'),
+          supabase.from('contacts').select('*').eq('pharmacy_id', pharmacyId),
+          supabase.from('campaigns').select('*').eq('pharmacy_id', pharmacyId),
         ]);
         if (contactsRes.error) throw contactsRes.error;
         if (campaignsRes.error) throw campaignsRes.error;

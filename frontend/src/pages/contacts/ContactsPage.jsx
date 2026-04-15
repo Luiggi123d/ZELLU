@@ -31,6 +31,7 @@ export default function ContactsPage() {
       const { data, error: err } = await supabase
         .from('contacts')
         .select('*')
+        .eq('pharmacy_id', pharmacyId)
         .order('last_purchase_at', { ascending: false, nullsFirst: false });
       if (cancelled) return;
       if (err) setError(err.message);

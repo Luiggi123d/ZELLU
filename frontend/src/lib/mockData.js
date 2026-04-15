@@ -500,17 +500,22 @@ export function getScoreBarColor(score) {
 }
 
 export function timeAgo(dateString) {
-  const now = new Date('2026-04-13T10:45:00');
+  if (!dateString) return '—';
+  const now = new Date();
   const date = new Date(dateString);
+  if (isNaN(date.getTime())) return '—';
   const diffMs = now - date;
+  if (diffMs < 0) return 'agora';
   const diffMins = Math.floor(diffMs / 60000);
   const diffHours = Math.floor(diffMs / 3600000);
   const diffDays = Math.floor(diffMs / 86400000);
-
+  if (diffMins < 1) return 'agora';
   if (diffMins < 60) return `${diffMins}min atrás`;
   if (diffHours < 24) return `${diffHours}h atrás`;
   if (diffDays < 30) return `${diffDays}d atrás`;
-  return `${Math.floor(diffDays / 30)} meses atrás`;
+  const diffMonths = Math.floor(diffDays / 30);
+  if (diffMonths < 12) return `${diffMonths}mês atrás`;
+  return `${Math.floor(diffMonths / 12)}ano atrás`;
 }
 
 export function formatCurrency(value) {

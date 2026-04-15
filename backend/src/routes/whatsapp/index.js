@@ -335,18 +335,34 @@ async function handleMessagesUpsert(pharmacyId, instanceName, data) {
       const pushName = msg?.pushName || null;
       const content = extractMessageContent(msg?.message);
       const externalId = msg?.key?.id || null;
-      const timestamp = msg?.messageTimestamp
-        ? new Date(Number(msg.messageTimestamp) * 1000).toISOString()
-        : new Date().toISOString();
+      let timestamp = new Date().toISOString();
+      if (msg?.messageTimestamp) {
+        const raw = Number(msg.messageTimestamp);
+        // Se o valor for maior que 1e12, já está em ms; senão está em segundos
+        const ms = raw > 1e12 ? raw : raw * 1000;
+        const parsed = new Date(ms);
+        // Sanity check: não aceita datas absurdas (antes de 2020 ou no futuro)
+        if (parsed.getFullYear() >= 2020 && parsed <= new Date(Date.now() + 60000)) {
+          timestamp = parsed.toISOString();
+        }
+      }
 
-      // Upsert contact
+      // Busca contato existente primeiro para não sobrescrever nome já salvo
+      const { data: existingContact } = await supabaseAdmin
+        .from('contacts')
+        .select('id, name')
+        .eq('pharmacy_id', pharmacyId)
+        .eq('phone', phone)
+        .maybeSingle();
+
       const { data: contact } = await supabaseAdmin
         .from('contacts')
         .upsert(
           {
             pharmacy_id: pharmacyId,
             phone,
-            name: pushName || null,
+            // Só salva pushName se o contato não tiver nome ainda
+            name: existingContact?.name || pushName || null,
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'pharmacy_id,phone' }
