@@ -119,13 +119,14 @@ export default function RadarPage() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!pharmacyId) { setLoading(false); return; }
+      const pid = profile?.pharmacy_id;
+      if (!pid) { setLoading(false); return; }
       setLoading(true);
       setError(null);
       const { data, error: err } = await supabase
         .from('contacts')
         .select('*')
-        .eq('pharmacy_id', pharmacyId);
+        .eq('pharmacy_id', pid);
       if (cancelled) return;
       if (err) setError(err.message);
       else setContacts(data || []);
@@ -133,7 +134,8 @@ export default function RadarPage() {
     }
     load();
     return () => { cancelled = true; };
-  }, [pharmacyId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const classified = useMemo(() => classifyForRadar(contacts), [contacts]);
 

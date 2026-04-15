@@ -78,13 +78,14 @@ export default function CampaignsPage() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!pharmacyId) { setLoading(false); return; }
+      const pid = profile?.pharmacy_id;
+      if (!pid) { setLoading(false); return; }
       setLoading(true);
       setError(null);
       const { data, error: err } = await supabase
         .from('campaigns')
         .select('*')
-        .eq('pharmacy_id', pharmacyId)
+        .eq('pharmacy_id', pid)
         .order('created_at', { ascending: false });
       if (cancelled) return;
       if (err) setError(err.message);
@@ -93,7 +94,8 @@ export default function CampaignsPage() {
     }
     load();
     return () => { cancelled = true; };
-  }, [pharmacyId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const counts = useMemo(() => ({
     pending: campaigns.filter((c) => c.status === 'draft').length,

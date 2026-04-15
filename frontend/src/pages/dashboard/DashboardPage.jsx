@@ -21,13 +21,14 @@ export default function DashboardPage() {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      if (!pharmacyId) { setLoading(false); return; }
+      const pid = profile?.pharmacy_id;
+      if (!pid) { setLoading(false); return; }
       setLoading(true);
       setError(null);
       try {
         const [contactsRes, campaignsRes] = await Promise.all([
-          supabase.from('contacts').select('*').eq('pharmacy_id', pharmacyId),
-          supabase.from('campaigns').select('*').eq('pharmacy_id', pharmacyId),
+          supabase.from('contacts').select('*').eq('pharmacy_id', pid),
+          supabase.from('campaigns').select('*').eq('pharmacy_id', pid),
         ]);
         if (contactsRes.error) throw contactsRes.error;
         if (campaignsRes.error) throw campaignsRes.error;
@@ -42,7 +43,8 @@ export default function DashboardPage() {
     }
     load();
     return () => { cancelled = true; };
-  }, [pharmacyId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (loading) {
     return (
