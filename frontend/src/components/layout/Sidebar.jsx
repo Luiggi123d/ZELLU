@@ -1,9 +1,10 @@
 import { NavLink } from 'react-router-dom';
 import { LayoutDashboard, Users, Radar, Activity, Megaphone, Settings, Search, LogOut } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { classifyForRadar } from '../../lib/dataHelpers';
+import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
 
 const navMain = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -26,29 +27,30 @@ export default function Sidebar() {
   const userName = profile?.full_name || 'Usuário';
   const userRole = profile?.role === 'owner' ? 'Proprietário' : profile?.role === 'admin' ? 'Admin' : 'Equipe';
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadBadges() {
-      if (!profile?.pharmacy_id) return;
-      const [contactsRes, campaignsRes, complaintsRes] = await Promise.all([
-        supabase.from('contacts').select('last_purchase_at').eq('pharmacy_id', profile.pharmacy_id),
-        supabase.from('campaigns').select('status').eq('pharmacy_id', profile.pharmacy_id).eq('status', 'draft'),
-        supabase.from('conversations').select('id', { count: 'exact', head: true })
-          .eq('pharmacy_id', profile.pharmacy_id)
-          .eq('has_complaint', true)
-          .gte('last_message_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
-      ]);
-      if (cancelled) return;
-      const classified = classifyForRadar(contactsRes.data || []);
-      setBadges({
-        radar: classified.lost.length + classified.cooling.length,
-        campaigns: (campaignsRes.data || []).length,
-        complaints: complaintsRes.count || 0,
-      });
-    }
-    loadBadges();
-    return () => { cancelled = true; };
+  const loadBadges = useCallback(async () => {
+    if (!profile?.pharmacy_id) return;
+    const [contactsRes, campaignsRes, complaintsRes] = await Promise.all([
+      supabase.from('contacts').select('last_purchase_at').eq('pharmacy_id', profile.pharmacy_id),
+      supabase.from('campaigns').select('status').eq('pharmacy_id', profile.pharmacy_id).eq('status', 'draft'),
+      supabase.from('conversations').select('id', { count: 'exact', head: true })
+        .eq('pharmacy_id', profile.pharmacy_id)
+        .eq('has_complaint', true)
+        .gte('last_message_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
+    ]);
+    const classified = classifyForRadar(contactsRes.data || []);
+    setBadges({
+      radar: classified.lost.length + classified.cooling.length,
+      campaigns: (campaignsRes.data || []).length,
+      complaints: complaintsRes.count || 0,
+    });
   }, [profile?.pharmacy_id]);
+
+  useEffect(() => {
+    loadBadges();
+  }, [loadBadges]);
+
+  // Rebusca badges ao voltar para a aba ou ganhar foco
+  useRefetchOnFocus(loadBadges, !!profile?.pharmacy_id);
 
   return (
     <aside className="flex h-screen w-64 flex-shrink-0 flex-col bg-zellu-800 text-white">

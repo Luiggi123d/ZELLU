@@ -2,12 +2,14 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 
 /**
- * Hook que garante:
- * 1. Aguarda o profile estar disponível antes de buscar
- * 2. Rebusca quando pharmacyId aparece (profile carregou depois do mount)
- * 3. Nunca fica em loading infinito — tem timeout de segurança de 15s
- * 4. Rebusca quando a aba volta ao foco após inatividade
- * 5. Escuta evento zellu:refetch para auto-refresh por inatividade
+ * Hook central de carregamento de dados do Zellu.
+ *
+ * Garante:
+ * 1. Aguarda profile antes de buscar
+ * 2. Stale-while-revalidate — mostra dados antigos enquanto rebusca (sem skeleton)
+ * 3. Rebusca em: visibilitychange, window focus, zellu:refetch, TOKEN_REFRESHED
+ * 4. Debounce de 300ms entre refetches para evitar rajadas
+ * 5. Timeout de segurança de 15s contra loading infinito
  */
 export function usePageData(fetchFn, deps = []) {
   const { profile } = useAuthStore();
@@ -16,26 +18,39 @@ export function usePageData(fetchFn, deps = []) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
   const mountedRef = useRef(true);
+  const hasDataRef = useRef(false);
   const timeoutRef = useRef(null);
+  const debounceRef = useRef(null);
+  const fetchingRef = useRef(false);
 
   const execute = useCallback(async () => {
     if (!mountedRef.current) return;
 
-    // Se profile ainda não carregou, aguarda
+    // Se profile ainda não carregou, sai do loading e aguarda
     if (!pharmacyId) {
       setLoading(false);
       return;
     }
 
-    setLoading(true);
+    // Evita chamadas duplicadas simultâneas
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
+
+    // Stale-while-revalidate: só mostra skeleton no PRIMEIRO carregamento
+    if (!hasDataRef.current) {
+      setLoading(true);
+    }
     setError(null);
 
     // Timeout de segurança — nunca fica em loading infinito
+    clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => {
       if (mountedRef.current) {
         setLoading(false);
         setError('Tempo limite excedido. Tente recarregar a página.');
+        fetchingRef.current = false;
       }
     }, 15000);
 
@@ -43,43 +58,61 @@ export function usePageData(fetchFn, deps = []) {
       const result = await fetchFn(pharmacyId);
       if (!mountedRef.current) return;
       setData(result);
+      hasDataRef.current = true;
     } catch (err) {
       if (!mountedRef.current) return;
       setError(err.message || 'Erro ao carregar dados');
     } finally {
       if (mountedRef.current) setLoading(false);
       clearTimeout(timeoutRef.current);
+      fetchingRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pharmacyId, ...deps]);
 
-  // Roda quando monta E quando pharmacyId aparece (perfil carregou depois)
+  // Refetch com debounce — evita rajadas (visibility + focus + zellu:refetch)
+  const debouncedRefetch = useCallback(() => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      if (pharmacyId && mountedRef.current) execute();
+    }, 300);
+  }, [pharmacyId, execute]);
+
+  // 1. Carrega quando monta E quando pharmacyId aparece
   useEffect(() => {
     mountedRef.current = true;
+    hasDataRef.current = false;
+    fetchingRef.current = false;
     execute();
     return () => {
       mountedRef.current = false;
       clearTimeout(timeoutRef.current);
+      clearTimeout(debounceRef.current);
     };
   }, [execute]);
 
-  // Rebusca quando a aba volta ao foco
+  // 2. Rebusca ao voltar para a aba (visibilitychange)
   useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible' && pharmacyId) {
-        execute();
-      }
+    const handler = () => {
+      if (document.visibilityState === 'visible') debouncedRefetch();
     };
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [pharmacyId, execute]);
+    document.addEventListener('visibilitychange', handler);
+    return () => document.removeEventListener('visibilitychange', handler);
+  }, [debouncedRefetch]);
 
-  // Escuta evento zellu:refetch (auto-refresh por inatividade no AppLayout)
+  // 3. Rebusca ao ganhar foco (window.focus — cobre alt+tab e clique na janela)
   useEffect(() => {
-    const handleRefetch = () => { if (pharmacyId) execute(); };
-    window.addEventListener('zellu:refetch', handleRefetch);
-    return () => window.removeEventListener('zellu:refetch', handleRefetch);
-  }, [pharmacyId, execute]);
+    const handler = () => debouncedRefetch();
+    window.addEventListener('focus', handler);
+    return () => window.removeEventListener('focus', handler);
+  }, [debouncedRefetch]);
+
+  // 4. Escuta evento zellu:refetch (TOKEN_REFRESHED, inatividade, etc.)
+  useEffect(() => {
+    const handler = () => debouncedRefetch();
+    window.addEventListener('zellu:refetch', handler);
+    return () => window.removeEventListener('zellu:refetch', handler);
+  }, [debouncedRefetch]);
 
   return { data, loading, error, refetch: execute, pharmacyId };
 }

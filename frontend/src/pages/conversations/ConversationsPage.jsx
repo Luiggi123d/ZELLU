@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { Search, Send, MessageSquare, Wifi } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
@@ -6,6 +6,7 @@ import { formatPhoneFromDigits } from '../../lib/dataHelpers';
 import { timeAgo } from '../../lib/mockData';
 import { SkeletonList } from '../../components/ui/Skeleton';
 import EmptyState from '../../components/ui/EmptyState';
+import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
 
 const statusStyles = {
   open: 'bg-amber-100 text-amber-700',
@@ -32,29 +33,32 @@ export default function ConversationsPage() {
   const [search, setSearch] = useState('');
   const [inputText, setInputText] = useState('');
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      const pid = profile?.pharmacy_id;
-      if (!pid) { setLoading(false); return; }
-      setLoading(true);
-      setError(null);
-      const { data, error: err } = await supabase
-        .from('conversations')
-        .select('*, contacts(id, name, phone)')
-        .eq('pharmacy_id', pid)
-        .order('last_message_at', { ascending: false, nullsFirst: false });
-      if (cancelled) return;
-      if (err) setError(err.message);
-      else {
-        setConversations(data || []);
-        if ((data || []).length > 0) setSelected((prev) => prev || data[0]);
-      }
-      setLoading(false);
+  const loadConversations = useCallback(async () => {
+    const pid = profile?.pharmacy_id;
+    if (!pid) { setLoading(false); return; }
+    // Stale-while-revalidate: so mostra skeleton se nao tem dados ainda
+    if (conversations.length === 0) setLoading(true);
+    setError(null);
+    const { data, error: err } = await supabase
+      .from('conversations')
+      .select('*, contacts(id, name, phone)')
+      .eq('pharmacy_id', pid)
+      .order('last_message_at', { ascending: false, nullsFirst: false });
+    if (err) setError(err.message);
+    else {
+      setConversations(data || []);
+      if ((data || []).length > 0) setSelected((prev) => prev || data[0]);
     }
-    load();
-    return () => { cancelled = true; };
-  }, [pharmacyId]); // eslint-disable-line react-hooks/exhaustive-deps
+    setLoading(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pharmacyId]);
+
+  useEffect(() => {
+    loadConversations();
+  }, [loadConversations]);
+
+  // Rebusca ao voltar para a aba, ganhar foco ou token renovado
+  useRefetchOnFocus(loadConversations, !!pharmacyId);
 
   // Realtime subscription — refresh conversation list when anything changes.
   useEffect(() => {

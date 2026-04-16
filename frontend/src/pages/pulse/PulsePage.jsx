@@ -1,7 +1,7 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
-import { useAuthStore } from '../../store/authStore';
 import { timeAgo, formatCurrency } from '../../lib/mockData';
+import { usePageData } from '../../hooks/usePageData';
 import { SkeletonCard } from '../../components/ui/Skeleton';
 import {
   Heart, MessageCircle, BarChart2, Activity, TrendingUp, TrendingDown,
@@ -47,7 +47,7 @@ function ComplaintCard({ conv, expanded, onToggle }) {
         <div className="flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-              Reclamação
+              Reclamacao
             </span>
             {(conv.complaint_topics || []).map((t) => (
               <span key={t} className="rounded-full bg-white px-2 py-0.5 text-xs text-gray-600 border border-gray-200">
@@ -71,7 +71,7 @@ function ComplaintCard({ conv, expanded, onToggle }) {
         <div className="mt-3 rounded-lg bg-white p-3 border border-red-100">
           <p className="mb-2 text-xs font-semibold text-gray-500">Conversa:</p>
           <p className="text-xs text-gray-500 italic">
-            Abra a conversa completa no histórico do cliente para ver os detalhes.
+            Abra a conversa completa no historico do cliente para ver os detalhes.
           </p>
         </div>
       )}
@@ -79,23 +79,13 @@ function ComplaintCard({ conv, expanded, onToggle }) {
   );
 }
 
-// -- Página principal ----------------------------------------
+// -- Pagina principal ----------------------------------------
 export default function PulsePage() {
-  const { profile } = useAuthStore();
-  const pharmacyId = profile?.pharmacy_id;
-
-  const [loading, setLoading] = useState(true);
-  const [onboardingStatus, setOnboardingStatus] = useState('pending');
-  const [pulseData, setPulseData] = useState(null);
-  const [complaints, setComplaints] = useState([]);
-  const [events, setEvents] = useState([]);
   const [expandedComplaint, setExpandedComplaint] = useState(null);
   const [activeTab, setActiveTab] = useState('pulse');
 
-  const load = useCallback(async () => {
-    if (!pharmacyId) { setLoading(false); return; }
-    setLoading(true);
-    try {
+  // Usa usePageData — ganha stale-while-revalidate, visibility, focus, refetch
+  const { data, loading, error, refetch } = usePageData(async (pid) => {
     const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const since7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -108,24 +98,24 @@ export default function PulsePage() {
       contactsRes,
       todayMsgRes,
     ] = await Promise.all([
-      supabase.from('pharmacies').select('onboarding_status, onboarding_completed_at').eq('id', pharmacyId).single(),
-      supabase.from('conversations').select('sentiment').eq('pharmacy_id', pharmacyId).gte('last_message_at', since30),
+      supabase.from('pharmacies').select('onboarding_status, onboarding_completed_at').eq('id', pid).single(),
+      supabase.from('conversations').select('sentiment').eq('pharmacy_id', pid).gte('last_message_at', since30),
       supabase.from('conversations')
         .select('id, complaint_summary, complaint_topics, last_message_at, contacts(name, phone)')
-        .eq('pharmacy_id', pharmacyId)
+        .eq('pharmacy_id', pid)
         .eq('has_complaint', true)
         .gte('last_message_at', since30)
         .order('last_message_at', { ascending: false })
         .limit(10),
       supabase.from('pharmacy_events')
         .select('*')
-        .eq('pharmacy_id', pharmacyId)
+        .eq('pharmacy_id', pid)
         .order('created_at', { ascending: false })
         .limit(20),
-      supabase.from('contacts').select('id, last_purchase_at, ai_behavior').eq('pharmacy_id', pharmacyId),
+      supabase.from('contacts').select('id, last_purchase_at, ai_behavior').eq('pharmacy_id', pid),
       supabase.from('messages')
         .select('id', { count: 'exact', head: true })
-        .eq('pharmacy_id', pharmacyId)
+        .eq('pharmacy_id', pid)
         .gte('created_at', today.toISOString()),
     ]);
 
@@ -138,45 +128,40 @@ export default function PulsePage() {
       total: convs.length,
     };
 
-    // Clientes recuperados (voltaram nos últimos 7 dias)
+    // Clientes recuperados (voltaram nos ultimos 7 dias)
     const contacts = contactsRes.data || [];
     const recovered = contacts.filter((c) => {
       if (!c.last_purchase_at) return false;
       return new Date(c.last_purchase_at) >= new Date(since7);
     }).length;
 
-    // Buyers ativos
     const buyers = contacts.filter((c) => c.ai_behavior === 'buyer').length;
 
-    setPulseData({
-      todayMessages: todayMsgRes.count || 0,
-      recovered,
-      buyers,
-      sentiment,
-      totalConversations: convs.length,
-    });
+    return {
+      onboardingStatus: pharmacyRes.data?.onboarding_status || 'pending',
+      pulseData: {
+        todayMessages: todayMsgRes.count || 0,
+        recovered,
+        buyers,
+        sentiment,
+        totalConversations: convs.length,
+      },
+      complaints: complaintsRes.data || [],
+      events: eventsRes.data || [],
+    };
+  });
 
-    setComplaints(complaintsRes.data || []);
-    setEvents(eventsRes.data || []);
-    setOnboardingStatus(pharmacyRes.data?.onboarding_status || 'pending');
-    } catch (err) {
-      console.error('[pulse] load error:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [pharmacyId]);
+  const onboardingStatus = data?.onboardingStatus || 'pending';
+  const pulseData = data?.pulseData || null;
+  const complaints = data?.complaints || [];
+  const events = data?.events || [];
 
-  useEffect(() => {
-    if (!pharmacyId) return;
-    load();
-  }, [pharmacyId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Polling enquanto onboarding está processando
+  // Polling enquanto onboarding esta processando
   useEffect(() => {
     if (onboardingStatus !== 'processing') return;
-    const interval = setInterval(load, 8000);
+    const interval = setInterval(refetch, 8000);
     return () => clearInterval(interval);
-  }, [onboardingStatus, load]);
+  }, [onboardingStatus, refetch]);
 
   if (loading) {
     return (
@@ -184,6 +169,14 @@ export default function PulsePage() {
         <SkeletonCard lines={2} />
         <div className="grid grid-cols-3 gap-4">{[1, 2, 3].map((i) => <SkeletonCard key={i} />)}</div>
         <SkeletonCard lines={5} />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="card p-6">
+        <p className="text-sm text-red-600">Erro ao carregar Pulse: {error}</p>
       </div>
     );
   }
@@ -196,15 +189,15 @@ export default function PulsePage() {
           <Loader2 size={28} className="animate-spin text-zellu-600" />
         </div>
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Analisando sua farmácia...</h2>
+          <h2 className="text-xl font-bold text-gray-900">Analisando sua farmacia...</h2>
           <p className="mt-1 text-sm text-gray-500">
-            A IA está lendo os últimos 30 dias de conversas.<br />
-            Isso leva alguns minutos. Você receberá um aviso quando estiver pronto.
+            A IA esta lendo os ultimos 30 dias de conversas.<br />
+            Isso leva alguns minutos. Voce recebera um aviso quando estiver pronto.
           </p>
         </div>
         <div className="flex items-center gap-2 rounded-full bg-zellu-50 px-4 py-2 text-sm text-zellu-700">
           <Activity size={14} className="animate-pulse" />
-          Processando histórico de conversas...
+          Processando historico de conversas...
         </div>
       </div>
     );
@@ -216,13 +209,13 @@ export default function PulsePage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Pulse</h1>
-        <p className="text-sm text-gray-500">Saúde da sua farmácia em tempo real</p>
+        <p className="text-sm text-gray-500">Saude da sua farmacia em tempo real</p>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-gray-200">
         {[
-          { key: 'pulse', label: 'Pulso da Farmácia', icon: Heart },
+          { key: 'pulse', label: 'Pulso da Farmacia', icon: Heart },
           { key: 'voice', label: 'Voz do Cliente', icon: MessageCircle },
         ].map(({ key, label, icon: TabIcon }) => (
           <button
@@ -246,7 +239,7 @@ export default function PulsePage() {
 
       {activeTab === 'pulse' && (
         <>
-          {/* Métricas do dia */}
+          {/* Metricas do dia */}
           <div className="grid grid-cols-3 gap-4">
             <div className="card p-5">
               <div className="flex items-center justify-between">
@@ -262,7 +255,7 @@ export default function PulsePage() {
                 <UserCheck size={16} className="text-emerald-500" />
               </div>
               <p className="mt-2 text-3xl font-bold text-emerald-600">{pulseData?.recovered || 0}</p>
-              <p className="mt-1 text-xs text-gray-400">nos últimos 7 dias</p>
+              <p className="mt-1 text-xs text-gray-400">nos ultimos 7 dias</p>
             </div>
             <div className="card p-5">
               <div className="flex items-center justify-between">
@@ -277,7 +270,7 @@ export default function PulsePage() {
           {/* Sentimento geral */}
           <div className="card p-6">
             <h2 className="mb-1 flex items-center gap-2 text-base font-semibold text-gray-900"><BarChart2 size={16} className="text-zellu-600" /> Humor da base</h2>
-            <p className="mb-4 text-xs text-gray-400">Baseado nas conversas dos últimos 30 dias</p>
+            <p className="mb-4 text-xs text-gray-400">Baseado nas conversas dos ultimos 30 dias</p>
             <SentimentBar {...(pulseData?.sentiment || { positive: 0, neutral: 0, negative: 0, total: 0 })} />
           </div>
 
@@ -286,7 +279,7 @@ export default function PulsePage() {
             <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-gray-900"><Clock size={16} className="text-gray-500" /> Linha do tempo</h2>
             {events.length === 0 ? (
               <p className="py-4 text-center text-sm text-gray-400">
-                Os eventos da sua farmácia aparecerão aqui conforme o Zellu trabalha.
+                Os eventos da sua farmacia aparecerao aqui conforme o Zellu trabalha.
               </p>
             ) : (
               <div className="space-y-3">
@@ -317,12 +310,12 @@ export default function PulsePage() {
 
       {activeTab === 'voice' && (
         <>
-          {/* Resumo de reclamações */}
+          {/* Resumo de reclamacoes */}
           <div className="card p-6">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900"><MessageCircle size={16} className="text-zellu-600" /> O que seus clientes estão dizendo</h2>
-                <p className="text-xs text-gray-400 mt-0.5">Últimos 30 dias · análise automática por IA</p>
+                <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900"><MessageCircle size={16} className="text-zellu-600" /> O que seus clientes estao dizendo</h2>
+                <p className="text-xs text-gray-400 mt-0.5">Ultimos 30 dias · analise automatica por IA</p>
               </div>
               <div className={`rounded-full px-3 py-1 text-xs font-medium ${
                 complaints.length === 0
@@ -331,11 +324,11 @@ export default function PulsePage() {
                   ? 'bg-amber-100 text-amber-700'
                   : 'bg-red-100 text-red-700'
               }`}>
-                {complaints.length === 0 ? (<span className="flex items-center gap-1"><CheckCircle size={12} /> Sem reclamações</span>) : `${complaints.length} reclamações`}
+                {complaints.length === 0 ? (<span className="flex items-center gap-1"><CheckCircle size={12} /> Sem reclamacoes</span>) : `${complaints.length} reclamacoes`}
               </div>
             </div>
 
-            {/* Tópicos mais frequentes */}
+            {/* Topicos mais frequentes */}
             {complaints.length > 0 && (() => {
               const topicCount = {};
               complaints.forEach((c) => {
@@ -346,7 +339,7 @@ export default function PulsePage() {
               const sorted = Object.entries(topicCount).sort((a, b) => b[1] - a[1]);
               return sorted.length > 0 ? (
                 <div className="mb-4">
-                  <p className="mb-2 text-xs font-semibold text-gray-500">Principais tópicos:</p>
+                  <p className="mb-2 text-xs font-semibold text-gray-500">Principais topicos:</p>
                   <div className="flex flex-wrap gap-2">
                     {sorted.map(([topic, count]) => (
                       <span key={topic} className="flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs text-red-700">
@@ -363,7 +356,7 @@ export default function PulsePage() {
             {pulseData?.sentiment && pulseData.sentiment.negative > 0 && (
               <div className="mb-4 rounded-lg bg-red-50 p-3">
                 <p className="text-xs text-red-700">
-                  <strong>{pulseData.sentiment.negative}</strong> conversas com sentimento negativo nos últimos 30 dias
+                  <strong>{pulseData.sentiment.negative}</strong> conversas com sentimento negativo nos ultimos 30 dias
                   {pulseData.sentiment.total > 0 && (
                     <> ({Math.round((pulseData.sentiment.negative / pulseData.sentiment.total) * 100)}% do total)</>
                   )}
@@ -372,21 +365,21 @@ export default function PulsePage() {
             )}
           </div>
 
-          {/* Lista de reclamações */}
+          {/* Lista de reclamacoes */}
           {complaints.length === 0 ? (
             <div className="card p-8 text-center">
               <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100">
                 <UserCheck size={20} className="text-emerald-600" />
               </div>
-              <p className="font-medium text-gray-900">Nenhuma reclamação detectada</p>
+              <p className="font-medium text-gray-900">Nenhuma reclamacao detectada</p>
               <p className="mt-1 text-sm text-gray-400">
-                A IA monitorou as conversas dos últimos 30 dias e não encontrou reclamações.
+                A IA monitorou as conversas dos ultimos 30 dias e nao encontrou reclamacoes.
               </p>
             </div>
           ) : (
             <div className="space-y-3">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                Conversas com reclamação
+                Conversas com reclamacao
               </p>
               {complaints.map((conv) => (
                 <ComplaintCard

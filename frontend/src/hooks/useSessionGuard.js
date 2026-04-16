@@ -2,23 +2,24 @@ import { useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
 /**
- * Monitora a sessão e força reload dos dados quando a aba volta ao foco
- * depois de muito tempo inativa.
+ * Monitora a sessão Supabase e dispara eventos globais:
+ * - TOKEN_REFRESHED → dispara zellu:refetch para todas as páginas rebuscarem
+ * - SIGNED_OUT → redireciona para login
+ * - visibilitychange → verifica se sessão ainda existe
  */
 export function useSessionGuard() {
   useEffect(() => {
-    // Monitora mudanças de estado da autenticação
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'TOKEN_REFRESHED') {
-        console.log('[session] Token renovado automaticamente');
+        console.log('[session] Token renovado — disparando refetch global');
+        window.dispatchEvent(new CustomEvent('zellu:refetch'));
       }
       if (event === 'SIGNED_OUT') {
-        // Sessão expirou e não conseguiu renovar — redireciona para login
         window.location.href = '/login';
       }
     });
 
-    // Quando a aba volta ao foco, força verificação da sessão
+    // Quando a aba volta ao foco, verifica se a sessão ainda é válida
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         supabase.auth.getSession().then(({ data: { session } }) => {
