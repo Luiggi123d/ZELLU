@@ -167,6 +167,20 @@ router.post('/sync-history', requireAuth, requirePharmacy, async (req, res, next
   try {
     const result = await syncHistoryForPharmacy(req.pharmacyId);
     invalidateCache(req.pharmacyId);
+
+    // Fire-and-forget: run AI analysis after sync
+    const { data: pharmacy } = await supabaseAdmin
+      .from('pharmacies')
+      .select('onboarding_status')
+      .eq('id', req.pharmacyId)
+      .single();
+
+    if (pharmacy?.onboarding_status === 'pending') {
+      processOnboardingHistory(req.pharmacyId).catch((err) =>
+        console.error('[sync-history] onboarding error:', err.message)
+      );
+    }
+
     return res.json({ ok: true, ...result });
   } catch (err) {
     next(err);
