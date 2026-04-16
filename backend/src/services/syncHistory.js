@@ -232,7 +232,8 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
   for (const [phone, chatInfo] of contactMap) {
     try {
       // --- Upsert contact ---
-      const { data: existingContact } = await supabaseAdmin
+      // Antes do upsert de contato, verifica se já existe com esse telefone
+      const { data: existingByPhone } = await supabaseAdmin
         .from('contacts')
         .select('id, name')
         .eq('pharmacy_id', pharmacyId)
@@ -243,9 +244,11 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
       const evoName = contactNameMap.get(chatInfo.whatsappJid)
         || contactNameMap.get(chatInfo.originalJid)
         || null;
-      const contactName = (existingContact?.name && isValidContactName(existingContact.name))
-        ? existingContact.name
-        : (evoName || chatInfo.name);
+      // Se já existe, usa o nome existente se tiver
+      const finalName = existingByPhone?.name || evoName || chatInfo.name;
+      const contactName = (existingByPhone?.name && isValidContactName(existingByPhone.name))
+        ? existingByPhone.name
+        : (finalName || null);
 
       const { data: contact, error: contactErr } = await supabaseAdmin
         .from('contacts')

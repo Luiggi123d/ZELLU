@@ -159,6 +159,32 @@ router.post('/fix-webhook', requireAuth, requirePharmacy, async (req, res, next)
 });
 
 // ============================================================
+// POST /api/whatsapp/reprocess-ai
+// Força reprocessamento da IA para farmácia conectada
+// ============================================================
+router.post('/reprocess-ai', requireAuth, requirePharmacy, async (req, res, next) => {
+  try {
+    const pharmacyId = req.pharmacyId;
+
+    // Reseta status para forçar reprocessamento
+    await supabaseAdmin
+      .from('pharmacies')
+      .update({ onboarding_status: 'pending' })
+      .eq('id', pharmacyId);
+
+    // Dispara em background
+    const { processOnboardingHistory } = require('../../services/onboardingProcessor');
+    processOnboardingHistory(pharmacyId).catch((err) =>
+      console.error('[reprocess-ai]', err.message)
+    );
+
+    return res.json({ ok: true, message: 'Reprocessamento iniciado em background' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
 // POST /api/whatsapp/sync-history
 // Pulls chats + recent messages from Evolution API and imports
 // them into Supabase so the CRM has data immediately after pairing.
@@ -398,7 +424,7 @@ async function handleMessagesUpsert(pharmacyId, instanceName, data) {
         }
       }
 
-      // Busca contato existente primeiro para não sobrescrever nome já salvo
+      // Busca contato existente para não sobrescrever nome válido
       const { data: existingContact } = await supabaseAdmin
         .from('contacts')
         .select('id, name')
@@ -406,16 +432,16 @@ async function handleMessagesUpsert(pharmacyId, instanceName, data) {
         .eq('phone', phone)
         .maybeSingle();
 
+      // Só usa pushName se contato não tiver nome ainda
+      const nameToSave = existingContact?.name || pushName || null;
+
       const { data: contact } = await supabaseAdmin
         .from('contacts')
         .upsert(
           {
             pharmacy_id: pharmacyId,
             phone,
-            // Preserva nome existente valido; so grava pushName se nao tem nome
-            name: (existingContact?.name && !/^[\d\s\-+().]+$/.test(existingContact.name.trim()))
-              ? existingContact.name
-              : pushName || null,
+            name: nameToSave,
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'pharmacy_id,phone' }
