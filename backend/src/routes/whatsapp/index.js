@@ -347,24 +347,27 @@ async function handleConnectionUpdate(pharmacyId, instanceName, data) {
   // Evolution sometimes needs a few seconds after `open` before
   // findChats returns results, so we delay a bit.
   if (connected) {
-    setTimeout(() => {
-      syncHistoryForPharmacy(pharmacyId)
-        .then((r) => console.log(`[sync-history] pharmacy=${pharmacyId}`, r))
-        .catch((err) => console.error(`[sync-history] pharmacy=${pharmacyId} error:`, err.message));
+    // Fire-and-forget: sync history, then run onboarding analysis
+    setTimeout(async () => {
+      try {
+        const syncResult = await syncHistoryForPharmacy(pharmacyId);
+        console.log(`[sync-history] pharmacy=${pharmacyId}`, syncResult);
+
+        // Run AI analysis AFTER sync completes (so conversations/messages exist)
+        const { data: pharmacy } = await supabaseAdmin
+          .from('pharmacies')
+          .select('onboarding_status')
+          .eq('id', pharmacyId)
+          .single();
+
+        if (pharmacy?.onboarding_status === 'pending') {
+          console.log(`[webhook] Starting onboarding analysis for pharmacy=${pharmacyId}`);
+          await processOnboardingHistory(pharmacyId);
+        }
+      } catch (err) {
+        console.error(`[sync-history] pharmacy=${pharmacyId} error:`, err.message);
+      }
     }, 5000);
-
-    // Dispara onboarding na primeira conexão (análise de 30 dias)
-    const { data: pharmacy } = await supabaseAdmin
-      .from('pharmacies')
-      .select('onboarding_status')
-      .eq('id', pharmacyId)
-      .single();
-
-    if (pharmacy?.onboarding_status === 'pending') {
-      processOnboardingHistory(pharmacyId).catch((err) =>
-        console.error('[webhook] onboarding error:', err.message)
-      );
-    }
   }
 }
 
@@ -384,11 +387,25 @@ async function handleMessagesUpsert(pharmacyId, instanceName, data) {
     try {
       const remoteJid = msg?.key?.remoteJid || msg?.remoteJid;
       if (!remoteJid) continue;
-      // So aceita contatos individuais reais (@s.whatsapp.net)
-      if (!remoteJid.includes('@s.whatsapp.net')) continue;
+
+      // Resolve phone from JID — handles both @s.whatsapp.net and @lid (via remoteJidAlt)
+      let phoneJid = null;
+      if (remoteJid.includes('@s.whatsapp.net')) {
+        phoneJid = remoteJid;
+      } else if (remoteJid.includes('@lid')) {
+        // LID — try to resolve via remoteJidAlt
+        const alt = msg?.key?.remoteJidAlt;
+        if (alt && alt.includes('@s.whatsapp.net')) {
+          phoneJid = alt;
+        } else {
+          continue; // Cannot resolve this LID
+        }
+      } else {
+        continue; // Skip groups, broadcasts, etc.
+      }
 
       const fromMe = !!(msg?.key?.fromMe);
-      const phone = remoteJid.split('@')[0].replace(/[^0-9]/g, '');
+      const phone = phoneJid.split('@')[0].replace(/[^0-9]/g, '');
       // Telefone real: 8-15 digitos
       if (!phone || phone.length < 8 || phone.length > 15) continue;
       // Valida que pushName e um nome real (nao numero de telefone)
@@ -514,6 +531,23 @@ function extractMessageContent(message) {
     '[mídia]'
   );
 }
+
+// ============================================================
+// POST /api/whatsapp/send-message
+// Sends a text message via WhatsApp (Evolution API)
+// ============================================================
+router.post('/send-message', requireAuth, requirePharmacy, async (req, res, next) => {
+  try {
+    const { phone, message } = req.body;
+    if (!phone || !message) {
+      return res.status(400).json({ error: 'phone e message são obrigatórios' });
+    }
+    const result = await evolution.sendTextMessage(req.pharmacyId, phone, message);
+    return res.json({ ok: true, result });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ============================================================
 // POST /api/whatsapp/campaigns/:id/enqueue

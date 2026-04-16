@@ -4,6 +4,10 @@ const evolution = require('./evolutionApi');
 // ============================================================
 // Pulls historical chats + messages from Evolution API and
 // upserts them into Supabase (contacts, conversations, messages).
+//
+// Handles LID-based JIDs by resolving the real phone number
+// from lastMessage.key.remoteJidAlt. Deduplicates contacts
+// that appear as both LID and @s.whatsapp.net chats.
 // ============================================================
 
 function extractMessageContent(message) {
@@ -21,23 +25,6 @@ function extractMessageContent(message) {
 }
 
 /**
- * Valida se um JID e um contato real (nao LID, grupo, broadcast, etc).
- * Retorna os digitos do telefone ou null se invalido.
- */
-function phoneFromJid(jid) {
-  if (!jid || typeof jid !== 'string') return null;
-  // Rejeita JIDs que nao sao contatos individuais reais
-  if (/@lid|@g\.us|@broadcast|@newsletter|@s\.whatsapp\.net.*:/i.test(jid)) {
-    // O ultimo caso captura JIDs de status/grupos internos
-  }
-  if (!jid.includes('@s.whatsapp.net')) return null; // So aceita contatos individuais
-  const digits = jid.split('@')[0].replace(/[^0-9]/g, '');
-  // Telefone real: 8-15 digitos (cobre numeros internacionais)
-  if (!digits || digits.length < 8 || digits.length > 15) return null;
-  return digits;
-}
-
-/**
  * Valida se um nome e realmente um nome humano e nao um numero de telefone.
  * A Evolution API as vezes retorna o numero como "name" ou "pushName".
  */
@@ -52,39 +39,183 @@ function isValidContactName(name) {
   return true;
 }
 
+/**
+ * Extracts phone digits from a @s.whatsapp.net JID.
+ * Returns null if the JID is not a valid individual contact.
+ */
+function phoneFromWhatsAppJid(jid) {
+  if (!jid || typeof jid !== 'string') return null;
+  if (!jid.includes('@s.whatsapp.net')) return null;
+  const digits = jid.split('@')[0].replace(/[^0-9]/g, '');
+  if (!digits || digits.length < 8 || digits.length > 15) return null;
+  return digits;
+}
+
+/**
+ * Resolves a chat to its real @s.whatsapp.net JID and phone number.
+ * Handles both direct @s.whatsapp.net chats and LID chats
+ * (where the real JID is in lastMessage.key.remoteJidAlt).
+ *
+ * Returns { phone, whatsappJid, name } or null if unresolvable.
+ */
+function resolveChat(chat) {
+  const remoteJid = chat.remoteJid || chat.id || '';
+
+  // Skip groups, broadcasts, newsletters
+  if (/@g\.us|@broadcast|@newsletter/i.test(remoteJid)) return null;
+
+  let whatsappJid = null;
+
+  if (remoteJid.includes('@s.whatsapp.net')) {
+    // Direct @s.whatsapp.net chat
+    whatsappJid = remoteJid;
+  } else if (remoteJid.includes('@lid')) {
+    // LID chat — resolve via lastMessage.key.remoteJidAlt
+    const alt = chat.lastMessage?.key?.remoteJidAlt;
+    if (alt && alt.includes('@s.whatsapp.net')) {
+      whatsappJid = alt;
+    } else {
+      // No remoteJidAlt available — cannot resolve this LID
+      return null;
+    }
+  } else {
+    // Unknown JID type
+    return null;
+  }
+
+  const phone = phoneFromWhatsAppJid(whatsappJid);
+  if (!phone) return null;
+
+  // Extract contact name from lastMessage.pushName (NOT chat.pushName which is always null)
+  let name = null;
+  const lastMsgPushName = chat.lastMessage?.pushName;
+  // If fromMe, pushName will be the pharmacy's own name (e.g. "Voce") — skip it
+  const isFromMe = chat.lastMessage?.key?.fromMe;
+  if (!isFromMe && isValidContactName(lastMsgPushName)) {
+    name = lastMsgPushName.trim();
+  }
+
+  return { phone, whatsappJid, name };
+}
+
+/**
+ * Deduplicates chats by phone number.
+ * If the same phone appears as both a LID chat and a @s.whatsapp.net chat,
+ * we keep the one that has the best data (name, most recent message).
+ *
+ * Returns a Map of phone -> { phone, whatsappJid, name }
+ */
+function deduplicateChats(chats) {
+  const byPhone = new Map();
+
+  for (const chat of chats) {
+    const resolved = resolveChat(chat);
+    if (!resolved) continue;
+
+    const existing = byPhone.get(resolved.phone);
+    if (!existing) {
+      byPhone.set(resolved.phone, resolved);
+    } else {
+      // Merge: prefer the entry that has a name
+      if (!existing.name && resolved.name) {
+        existing.name = resolved.name;
+      }
+      // Always prefer the @s.whatsapp.net JID for fetching messages
+      if (resolved.whatsappJid.includes('@s.whatsapp.net')) {
+        existing.whatsappJid = resolved.whatsappJid;
+      }
+    }
+  }
+
+  return byPhone;
+}
+
+/**
+ * Extracts pushName from inbound messages (not fromMe).
+ * Iterates from most recent to oldest, returns the first valid name found.
+ */
+function extractPushNameFromMessages(msgs) {
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const msg = msgs[i];
+    if (msg?.key?.fromMe) continue;
+    const name = msg?.pushName || msg?.verifiedBizName || null;
+    if (isValidContactName(name)) {
+      return name.trim();
+    }
+  }
+  return null;
+}
+
+/**
+ * Parses a message timestamp into an ISO string.
+ * Returns null if the timestamp is invalid.
+ */
+function parseTimestamp(ts) {
+  if (!ts) return null;
+  const raw = Number(ts);
+  if (isNaN(raw)) return null;
+  const ms = raw > 1e12 ? raw : raw * 1000;
+  const parsed = new Date(ms);
+  // Sanity check: must be between 2020 and slightly in the future
+  if (parsed.getFullYear() >= 2020 && parsed <= new Date(Date.now() + 60000)) {
+    return parsed.toISOString();
+  }
+  return null;
+}
+
+// ============================================================
+// Main sync function
+// ============================================================
+
 async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {}) {
-  const result = { chats: 0, contactsUpserted: 0, conversationsUpserted: 0, messagesInserted: 0, namesUpdated: 0, errors: [] };
+  const result = {
+    chats: 0,
+    uniqueContacts: 0,
+    contactsUpserted: 0,
+    conversationsUpserted: 0,
+    messagesInserted: 0,
+    namesUpdated: 0,
+    skippedLids: 0,
+    errors: [],
+  };
 
-  const { data: inst } = await supabaseAdmin
-    .from('whatsapp_instances')
-    .select('id')
-    .eq('pharmacy_id', pharmacyId)
-    .maybeSingle();
-
-  let chats = [];
+  // Get the WhatsApp instance for this pharmacy
+  let instanceId = null;
   try {
-    chats = await evolution.findChats(pharmacyId);
+    const { data: inst } = await supabaseAdmin
+      .from('whatsapp_instances')
+      .select('id')
+      .eq('pharmacy_id', pharmacyId)
+      .maybeSingle();
+    instanceId = inst?.id || null;
+  } catch (err) {
+    console.warn(`[sync] Could not fetch whatsapp_instance for pharmacy ${pharmacyId}: ${err.message}`);
+  }
+
+  // Step 1: Fetch all chats
+  let rawChats = [];
+  try {
+    rawChats = await evolution.findChats(pharmacyId);
   } catch (err) {
     result.errors.push(`findChats failed: ${err.message}`);
+    console.error(`[sync] findChats failed for pharmacy ${pharmacyId}:`, err.message);
     return result;
   }
 
-  result.chats = chats.length;
-  console.log(`[sync] Farmacia ${pharmacyId}: ${chats.length} chats encontrados`);
+  result.chats = rawChats.length;
+  console.log(`[sync] Farmacia ${pharmacyId}: ${rawChats.length} chats brutos encontrados`);
 
-  for (const chat of chats) {
+  // Step 2: Resolve and deduplicate chats
+  const contactMap = deduplicateChats(rawChats);
+  result.uniqueContacts = contactMap.size;
+  result.skippedLids = rawChats.length - contactMap.size;
+
+  console.log(`[sync] ${contactMap.size} contatos unicos apos deduplicacao (${result.skippedLids} chats ignorados/duplicados)`);
+
+  // Step 3: Process each unique contact
+  for (const [phone, chatInfo] of contactMap) {
     try {
-      const remoteJid = chat.remoteJid || chat.id || chat.key?.remoteJid;
-      if (!remoteJid) continue;
-
-      const phone = phoneFromJid(remoteJid);
-      if (!phone) continue;
-
-      // Extrai pushName e valida que e um nome real (nao um numero)
-      const rawName = chat.pushName || chat.name || chat.profileName || null;
-      const pushName = isValidContactName(rawName) ? rawName.trim() : null;
-
-      // Busca contato existente para nao sobrescrever nome ja salvo
+      // --- Upsert contact ---
       const { data: existingContact } = await supabaseAdmin
         .from('contacts')
         .select('id, name')
@@ -92,10 +223,10 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
         .eq('phone', phone)
         .maybeSingle();
 
-      // Preserva nome existente; so grava pushName se nao tem nome ainda
+      // Preserve existing name if it's valid; otherwise use the name from chat
       const contactName = (existingContact?.name && isValidContactName(existingContact.name))
         ? existingContact.name
-        : pushName;
+        : chatInfo.name;
 
       const { data: contact, error: contactErr } = await supabaseAdmin
         .from('contacts')
@@ -117,28 +248,30 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
       }
       result.contactsUpserted++;
 
-      // Fetch messages for this chat
+      // --- Fetch messages using the @s.whatsapp.net JID (LID returns 0 messages) ---
       let msgs = [];
       try {
-        msgs = await evolution.findMessages(pharmacyId, remoteJid, messagesPerChat);
+        msgs = await evolution.findMessages(pharmacyId, chatInfo.whatsappJid, messagesPerChat);
       } catch (err) {
-        result.errors.push(`findMessages ${remoteJid}: ${err.message}`);
+        result.errors.push(`findMessages ${chatInfo.whatsappJid}: ${err.message}`);
       }
 
-      // Se o contato AINDA nao tem nome valido, tenta extrair dos pushNames das mensagens
+      // --- Try to extract pushName from messages if contact still has no name ---
       if (!isValidContactName(contact.name) && msgs.length > 0) {
         const msgPushName = extractPushNameFromMessages(msgs);
         if (msgPushName) {
-          await supabaseAdmin
+          const { error: nameErr } = await supabaseAdmin
             .from('contacts')
             .update({ name: msgPushName, updated_at: new Date().toISOString() })
             .eq('id', contact.id);
-          contact.name = msgPushName;
-          result.namesUpdated++;
+          if (!nameErr) {
+            contact.name = msgPushName;
+            result.namesUpdated++;
+          }
         }
       }
 
-      // Find or create conversation
+      // --- Find or create conversation ---
       const { data: existingConv } = await supabaseAdmin
         .from('conversations')
         .select('id')
@@ -149,8 +282,10 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
         .maybeSingle();
 
       let conversationId = existingConv?.id;
-      const lastMsgTs = msgs.length
-        ? new Date(Number(msgs[msgs.length - 1]?.messageTimestamp || Date.now() / 1000) * 1000).toISOString()
+
+      // Determine last message timestamp
+      const lastMsgTs = msgs.length > 0
+        ? (parseTimestamp(msgs[msgs.length - 1]?.messageTimestamp) || new Date().toISOString())
         : new Date().toISOString();
 
       if (!conversationId) {
@@ -159,13 +294,14 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
           .insert({
             pharmacy_id: pharmacyId,
             contact_id: contact.id,
-            whatsapp_instance_id: inst?.id || null,
+            whatsapp_instance_id: instanceId,
             status: 'open',
             last_message_at: lastMsgTs,
             unread_count: 0,
           })
           .select()
           .single();
+
         if (convErr) {
           result.errors.push(`conv insert ${phone}: ${convErr.message}`);
           continue;
@@ -179,32 +315,25 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
       }
       result.conversationsUpserted++;
 
-      // Insert messages, deduped by external_id
+      // --- Insert messages (deduplicated by external_id) ---
       for (const msg of msgs) {
         try {
-          const externalId = msg?.key?.id || msg?.id || null;
-          if (externalId) {
-            const { data: dupe } = await supabaseAdmin
-              .from('messages')
-              .select('id')
-              .eq('external_id', externalId)
-              .maybeSingle();
-            if (dupe) continue;
-          }
+          const externalId = msg?.key?.id || null;
+          if (!externalId) continue; // Skip messages without an ID
+
+          // Check for duplicate
+          const { data: dupe } = await supabaseAdmin
+            .from('messages')
+            .select('id')
+            .eq('external_id', externalId)
+            .maybeSingle();
+          if (dupe) continue;
 
           const fromMe = !!(msg?.key?.fromMe);
           const content = extractMessageContent(msg?.message);
-          let timestamp = new Date().toISOString();
-          if (msg?.messageTimestamp) {
-            const raw = Number(msg.messageTimestamp);
-            const ms = raw > 1e12 ? raw : raw * 1000;
-            const parsed = new Date(ms);
-            if (parsed.getFullYear() >= 2020 && parsed <= new Date(Date.now() + 60000)) {
-              timestamp = parsed.toISOString();
-            }
-          }
+          const timestamp = parseTimestamp(msg?.messageTimestamp) || new Date().toISOString();
 
-          await supabaseAdmin.from('messages').insert({
+          const { error: msgErr } = await supabaseAdmin.from('messages').insert({
             pharmacy_id: pharmacyId,
             conversation_id: conversationId,
             contact_id: contact.id,
@@ -214,37 +343,34 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
             external_id: externalId,
             created_at: timestamp,
           });
-          result.messagesInserted++;
+
+          if (msgErr) {
+            result.errors.push(`message insert ${externalId}: ${msgErr.message}`);
+          } else {
+            result.messagesInserted++;
+          }
         } catch (err) {
           result.errors.push(`message insert: ${err.message}`);
         }
       }
     } catch (err) {
-      result.errors.push(`chat loop: ${err.message}`);
+      result.errors.push(`chat loop ${phone}: ${err.message}`);
     }
   }
 
-  console.log(`[sync] Resultado: ${result.contactsUpserted} contatos, ${result.conversationsUpserted} conversas, ${result.messagesInserted} msgs, ${result.namesUpdated} nomes atualizados`);
-  if (result.errors.length > 0) console.warn(`[sync] Erros: ${result.errors.length}`, result.errors.slice(0, 5));
+  // --- Summary log ---
+  console.log(
+    `[sync] Resultado farmacia ${pharmacyId}: ` +
+    `${result.contactsUpserted} contatos, ` +
+    `${result.conversationsUpserted} conversas, ` +
+    `${result.messagesInserted} msgs, ` +
+    `${result.namesUpdated} nomes atualizados`
+  );
+  if (result.errors.length > 0) {
+    console.warn(`[sync] ${result.errors.length} erros:`, result.errors.slice(0, 10));
+  }
 
   return result;
-}
-
-/**
- * Extrai pushName de mensagens recebidas (nao fromMe).
- * Prioriza mensagens mais recentes.
- * Valida que o nome nao e um numero de telefone.
- */
-function extractPushNameFromMessages(msgs) {
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    const msg = msgs[i];
-    if (msg?.key?.fromMe) continue;
-    const name = msg?.pushName || msg?.verifiedBizName || null;
-    if (isValidContactName(name)) {
-      return name.trim();
-    }
-  }
-  return null;
 }
 
 module.exports = { syncHistoryForPharmacy };

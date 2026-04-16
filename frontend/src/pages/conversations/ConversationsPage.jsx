@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import { Search, Send, MessageSquare, Wifi } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
@@ -7,6 +7,7 @@ import { timeAgo } from '../../lib/mockData';
 import { SkeletonList } from '../../components/ui/Skeleton';
 import EmptyState from '../../components/ui/EmptyState';
 import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
+import { api } from '../../lib/api';
 
 const statusStyles = {
   open: 'bg-amber-100 text-amber-700',
@@ -32,6 +33,8 @@ export default function ConversationsPage() {
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [search, setSearch] = useState('');
   const [inputText, setInputText] = useState('');
+  const [sending, setSending] = useState(false);
+  const messagesEndRef = useRef(null);
 
   const loadConversations = useCallback(async () => {
     const pid = profile?.pharmacy_id;
@@ -40,14 +43,6 @@ export default function ConversationsPage() {
     if (conversations.length === 0) setLoading(true);
     setError(null);
     try {
-      // Garante sessao valida antes da query (sem timeout agressivo)
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        // Tenta refresh antes de redirecionar
-        const { data: { session: refreshed } } = await supabase.auth.refreshSession();
-        if (!refreshed) { window.location.href = '/login'; return; }
-      }
-
       const { data, error: err } = await supabase
         .from('conversations')
         .select('*, contacts(id, name, phone)')
@@ -123,6 +118,27 @@ export default function ConversationsPage() {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [selected?.id]);
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const handleSendMessage = useCallback(async () => {
+    if (!inputText.trim() || !selected?.contacts?.phone || sending) return;
+    setSending(true);
+    try {
+      await api.post('/whatsapp/send-message', {
+        phone: selected.contacts.phone,
+        message: inputText.trim(),
+      });
+      setInputText('');
+    } catch (err) {
+      console.error('Erro ao enviar mensagem:', err.message);
+    } finally {
+      setSending(false);
+    }
+  }, [inputText, selected, sending]);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return conversations;
@@ -237,16 +253,19 @@ export default function ConversationsPage() {
               ) : messages.length === 0 ? (
                 <p className="text-center text-sm text-gray-400">Nenhuma mensagem nesta conversa ainda</p>
               ) : (
-                messages.map((msg) => (
-                  <div key={msg.id} className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 shadow-sm ${msg.direction === 'outbound' ? 'rounded-br-md bg-emerald-100 text-gray-800' : 'rounded-bl-md bg-white text-gray-800'}`}>
-                      <p className="text-sm leading-relaxed">{msg.content}</p>
-                      <p className={`mt-1 text-right text-[10px] ${msg.direction === 'outbound' ? 'text-emerald-600' : 'text-gray-400'}`}>
-                        {msg.created_at ? timeAgo(msg.created_at) : ''}
-                      </p>
+                <>
+                  {messages.map((msg) => (
+                    <div key={msg.id} className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[75%] rounded-2xl px-4 py-2.5 shadow-sm ${msg.direction === 'outbound' ? 'rounded-br-md bg-emerald-100 text-gray-800' : 'rounded-bl-md bg-white text-gray-800'}`}>
+                        <p className="text-sm leading-relaxed">{msg.content}</p>
+                        <p className={`mt-1 text-right text-[10px] ${msg.direction === 'outbound' ? 'text-emerald-600' : 'text-gray-400'}`}>
+                          {msg.created_at ? timeAgo(msg.created_at) : ''}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  ))}
+                  <div ref={messagesEndRef} />
+                </>
               )}
             </div>
             <div className="border-t border-gray-200 p-4">
@@ -256,9 +275,14 @@ export default function ConversationsPage() {
                   placeholder="Digite sua mensagem..."
                   value={inputText}
                   onChange={(e) => setInputText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } }}
                   className="flex-1 rounded-full border border-gray-300 px-4 py-2.5 text-sm focus:border-zellu-500 focus:outline-none"
                 />
-                <button className="flex h-10 w-10 items-center justify-center rounded-full bg-zellu-600 text-white hover:bg-zellu-700">
+                <button
+                  onClick={handleSendMessage}
+                  disabled={sending || !inputText.trim()}
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-zellu-600 text-white hover:bg-zellu-700 disabled:opacity-50"
+                >
                   <Send size={16} />
                 </button>
               </div>

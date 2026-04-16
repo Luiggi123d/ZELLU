@@ -1,16 +1,13 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { supabase } from '../lib/supabase';
 
 /**
  * Hook central de carregamento de dados do Zellu.
  *
- * Regras:
- * - Aguarda pharmacyId antes de buscar
- * - Stale-while-revalidate: se ja tem dados, mostra enquanto rebusca
- * - NAO usa timeout agressivo (causa falsos "sessao expirada")
- * - Escuta zellu:refetch para rebuscar ao voltar para a aba
- * - Silencioso em erros de refetch quando ja tem dados
+ * Simplificado: sem verificacao manual de sessao.
+ * O Supabase client ja faz auto-refresh de token.
+ * Se o token expirou e o refresh falha, o onAuthStateChange
+ * no useSessionGuard redireciona para /login.
  */
 export function usePageData(fetchFn, deps = []) {
   const { profile } = useAuthStore();
@@ -25,39 +22,21 @@ export function usePageData(fetchFn, deps = []) {
   const fetchingRef = useRef(false);
 
   const execute = useCallback(async (isRefetch = false) => {
-    if (!mountedRef.current || !pharmacyId) {
-      if (!pharmacyId) setLoading(false);
+    if (!pharmacyId) {
+      setLoading(false);
       return;
     }
 
-    // Impede fetches simultaneos — mas NAO bloqueia refetch se o anterior travou
+    // Skip concurrent refetch — but allow initial fetch
     if (fetchingRef.current && isRefetch) return;
-
     fetchingRef.current = true;
 
-    // So mostra skeleton se NAO tem dados ainda (stale-while-revalidate)
-    if (!hasDataRef.current) {
+    // Only show skeleton if we don't have data yet
+    if (!hasDataRef.current && !isRefetch) {
       setLoading(true);
     }
 
     try {
-      // Verifica sessao — sem timeout, getSession le do cache local
-      const { data: { session } } = await supabase.auth.getSession();
-
-      if (!session) {
-        // Tenta refresh uma vez antes de desistir
-        const { data: { session: refreshed } } = await supabase.auth.refreshSession();
-        if (!refreshed) {
-          if (!isRefetch) setError('Sessao expirada. Faca login novamente.');
-          setLoading(false);
-          fetchingRef.current = false;
-          return;
-        }
-      }
-
-      if (!mountedRef.current) { fetchingRef.current = false; return; }
-
-      // Executa a query
       const result = await fetchFn(pharmacyId);
 
       if (!mountedRef.current) { fetchingRef.current = false; return; }
@@ -65,45 +44,37 @@ export function usePageData(fetchFn, deps = []) {
       setData(result);
       hasDataRef.current = true;
       setError(null);
-      setLoading(false);
     } catch (err) {
       if (!mountedRef.current) { fetchingRef.current = false; return; }
 
-      // Se ja tem dados, engole o erro silenciosamente (stale data e melhor que erro)
       if (hasDataRef.current) {
-        console.warn('[usePageData] Refetch falhou, mantendo dados anteriores:', err.message);
+        // Stale-while-revalidate: keep old data on refetch error
+        console.warn('[usePageData] Refetch failed, keeping stale data:', err.message);
       } else {
         setError(err.message || 'Erro ao carregar dados');
       }
-      setLoading(false);
     } finally {
+      if (mountedRef.current) setLoading(false);
       fetchingRef.current = false;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pharmacyId, ...deps]);
 
-  // Carrega quando monta ou quando pharmacyId muda
+  // Initial fetch
   useEffect(() => {
     mountedRef.current = true;
-
-    // Reset completo so se pharmacyId mudou (nao em re-mount da mesma pagina)
-    if (!hasDataRef.current) {
-      setLoading(true);
-      setError(null);
-      setData(null);
-    }
-
+    hasDataRef.current = false;
+    setData(null);
+    setLoading(true);
+    setError(null);
     execute(false);
-
     return () => { mountedRef.current = false; };
   }, [execute]);
 
-  // Escuta zellu:refetch (disparado pelo useSessionGuard apos token renovado)
+  // Listen for zellu:refetch (tab visibility change)
   useEffect(() => {
     const handler = () => {
-      if (pharmacyId && mountedRef.current) {
-        execute(true); // isRefetch = true — nao mostra skeleton
-      }
+      if (pharmacyId && mountedRef.current) execute(true);
     };
     window.addEventListener('zellu:refetch', handler);
     return () => window.removeEventListener('zellu:refetch', handler);
