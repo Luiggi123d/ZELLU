@@ -68,6 +68,9 @@ app.use(errorHandler);
 
 app.listen(env.port, () => {
   console.log(`Zellu API running on port ${env.port}`);
+  console.log(`  ANTHROPIC_API_KEY: ${process.env.ANTHROPIC_API_KEY ? 'configurada' : '*** NAO CONFIGURADA ***'}`);
+  console.log(`  EVOLUTION_API_URL: ${env.evolutionApiUrl || '*** NAO CONFIGURADA ***'}`);
+  console.log(`  BACKEND_PUBLIC_URL: ${env.backendPublicUrl || '*** NAO CONFIGURADA ***'}`);
 });
 
 module.exports = app;

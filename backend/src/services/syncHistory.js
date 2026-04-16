@@ -5,11 +5,8 @@ const evolution = require('./evolutionApi');
 // Pulls historical chats + messages from Evolution API and
 // upserts them into Supabase (contacts, conversations, messages).
 //
-// Baileys (the engine behind Evolution API) does NOT replay the
-// full WhatsApp history on pair — it only syncs what the phone
-// has been pushing since pairing. But Evolution stores everything
-// it has seen in its own DB, and `findChats` + `findMessages`
-// returns that.
+// Agora tambem extrai pushName das mensagens para preencher
+// o nome dos contatos que vieram sem nome do findChats.
 // ============================================================
 
 function extractMessageContent(message) {
@@ -22,7 +19,7 @@ function extractMessageContent(message) {
     message.documentMessage?.caption ||
     message.buttonsResponseMessage?.selectedDisplayText ||
     message.listResponseMessage?.title ||
-    '[mídia]'
+    '[midia]'
   );
 }
 
@@ -32,7 +29,7 @@ function phoneFromJid(jid) {
 }
 
 async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {}) {
-  const result = { chats: 0, contactsUpserted: 0, conversationsUpserted: 0, messagesInserted: 0, errors: [] };
+  const result = { chats: 0, contactsUpserted: 0, conversationsUpserted: 0, messagesInserted: 0, namesUpdated: 0, errors: [] };
 
   // Get the whatsapp_instances row for this pharmacy (we need its id)
   const { data: inst } = await supabaseAdmin
@@ -61,7 +58,7 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
 
       const pushName = chat.pushName || chat.name || chat.profileName || null;
 
-      // Upsert contact
+      // Upsert contact (sem sobrescrever nome existente)
       const { data: contact, error: contactErr } = await supabaseAdmin
         .from('contacts')
         .upsert(
@@ -71,7 +68,7 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
             name: pushName || null,
             updated_at: new Date().toISOString(),
           },
-          { onConflict: 'pharmacy_id,phone' }
+          { onConflict: 'pharmacy_id,phone', ignoreDuplicates: false }
         )
         .select()
         .single();
@@ -88,6 +85,19 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
         msgs = await evolution.findMessages(pharmacyId, remoteJid, messagesPerChat);
       } catch (err) {
         result.errors.push(`findMessages ${remoteJid}: ${err.message}`);
+      }
+
+      // Se o contato nao tem nome, tenta extrair dos pushNames das mensagens
+      if (!contact.name && msgs.length > 0) {
+        const msgPushName = extractPushNameFromMessages(msgs);
+        if (msgPushName) {
+          await supabaseAdmin
+            .from('contacts')
+            .update({ name: msgPushName, updated_at: new Date().toISOString() })
+            .eq('id', contact.id);
+          contact.name = msgPushName;
+          result.namesUpdated++;
+        }
       }
 
       // Find or create conversation
@@ -177,6 +187,23 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
   }
 
   return result;
+}
+
+/**
+ * Extrai pushName de mensagens recebidas (nao fromMe).
+ * Prioriza mensagens mais recentes.
+ */
+function extractPushNameFromMessages(msgs) {
+  // Itera de tras pra frente (mensagens mais recentes primeiro)
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const msg = msgs[i];
+    if (msg?.key?.fromMe) continue; // Ignora mensagens enviadas
+    const name = msg?.pushName || msg?.verifiedBizName || null;
+    if (name && name.trim() && name.length > 1) {
+      return name.trim();
+    }
+  }
+  return null;
 }
 
 module.exports = { syncHistoryForPharmacy };

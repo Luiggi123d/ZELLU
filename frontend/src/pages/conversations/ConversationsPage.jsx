@@ -39,15 +39,23 @@ export default function ConversationsPage() {
     // Stale-while-revalidate: so mostra skeleton se nao tem dados ainda
     if (conversations.length === 0) setLoading(true);
     setError(null);
-    const { data, error: err } = await supabase
-      .from('conversations')
-      .select('*, contacts(id, name, phone)')
-      .eq('pharmacy_id', pid)
-      .order('last_message_at', { ascending: false, nullsFirst: false });
-    if (err) setError(err.message);
-    else {
-      setConversations(data || []);
-      if ((data || []).length > 0) setSelected((prev) => prev || data[0]);
+    try {
+      // Garante sessao valida antes da query
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { window.location.href = '/login'; return; }
+
+      const { data, error: err } = await supabase
+        .from('conversations')
+        .select('*, contacts(id, name, phone)')
+        .eq('pharmacy_id', pid)
+        .order('last_message_at', { ascending: false, nullsFirst: false });
+      if (err) setError(err.message);
+      else {
+        setConversations(data || []);
+        if ((data || []).length > 0) setSelected((prev) => prev || data[0]);
+      }
+    } catch (err) {
+      if (conversations.length === 0) setError(err.message || 'Erro ao carregar conversas');
     }
     setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps

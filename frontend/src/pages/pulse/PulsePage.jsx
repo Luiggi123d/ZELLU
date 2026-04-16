@@ -112,7 +112,7 @@ export default function PulsePage() {
         .eq('pharmacy_id', pid)
         .order('created_at', { ascending: false })
         .limit(20),
-      supabase.from('contacts').select('id, last_purchase_at, ai_behavior').eq('pharmacy_id', pid),
+      supabase.from('contacts').select('id, last_purchase_at, total_purchases').eq('pharmacy_id', pid),
       supabase.from('messages')
         .select('id', { count: 'exact', head: true })
         .eq('pharmacy_id', pid)
@@ -135,7 +135,7 @@ export default function PulsePage() {
       return new Date(c.last_purchase_at) >= new Date(since7);
     }).length;
 
-    const buyers = contacts.filter((c) => c.ai_behavior === 'buyer').length;
+    const buyers = contacts.filter((c) => (c.total_purchases || 0) >= 2).length;
 
     return {
       onboardingStatus: pharmacyRes.data?.onboarding_status || 'pending',

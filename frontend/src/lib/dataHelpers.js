@@ -71,8 +71,19 @@ export function computeDashboardMetrics({ contacts = [], campaigns = [] } = {}) 
 
 export function formatPhoneFromDigits(digits) {
   if (!digits) return '';
-  const d = String(digits).replace(/\D/g, '');
+  let d = String(digits).replace(/\D/g, '');
+
+  // Remove codigo do pais (55) se presente
+  if (d.startsWith('55') && d.length >= 12) {
+    d = d.slice(2);
+  }
+
+  // Celular: (XX) 9XXXX-XXXX
   if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  // Fixo: (XX) XXXX-XXXX
   if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+
+  // Fallback: mostra com +55 se parece BR
+  if (digits.length > 11) return `+${String(digits).replace(/\D/g, '')}`;
   return digits;
 }
