@@ -180,36 +180,55 @@ router.post('/sync-history', requireAuth, requirePharmacy, async (req, res, next
 router.get('/debug-chats', requireAuth, requirePharmacy, async (req, res, next) => {
   try {
     const chats = await evolution.findChats(req.pharmacyId);
-    // Pega amostra de 3 chats com mensagens
-    const samples = [];
-    for (const chat of chats.slice(0, 5)) {
-      const jid = chat.remoteJid || chat.id || chat.key?.remoteJid;
-      let msgs = [];
-      if (jid && jid.includes('@s.whatsapp.net')) {
-        try { msgs = await evolution.findMessages(req.pharmacyId, jid, 3); } catch (e) { msgs = [{ error: e.message }]; }
-      }
-      samples.push({
-        rawChat: chat,
-        jid,
-        chatKeys: Object.keys(chat || {}),
-        firstMsgKeys: msgs[0] ? Object.keys(msgs[0]) : [],
-        firstMsgPushName: msgs[0]?.pushName || null,
-        firstMsgVerifiedBizName: msgs[0]?.verifiedBizName || null,
-        msgsCount: msgs.length,
-        msgsSample: msgs.slice(0, 2).map(m => ({
+
+    // Find a @s.whatsapp.net chat and fetch its messages to inspect pushName
+    const snetChat = chats.find(c => (c.remoteJid || '').includes('@s.whatsapp.net'));
+    let msgDebug = null;
+    if (snetChat) {
+      const msgs = await evolution.findMessages(req.pharmacyId, snetChat.remoteJid, 10);
+      const inbound = msgs.filter(m => !m?.key?.fromMe);
+      msgDebug = {
+        jid: snetChat.remoteJid,
+        totalMsgs: msgs.length,
+        inboundCount: inbound.length,
+        // Show ALL inbound messages' pushName
+        inboundPushNames: inbound.map(m => ({
           pushName: m?.pushName,
           verifiedBizName: m?.verifiedBizName,
-          key: m?.key,
-          messageTimestamp: m?.messageTimestamp,
-          hasMessage: !!m?.message,
+          fromMe: m?.key?.fromMe,
+          allTopKeys: Object.keys(m || {}),
         })),
-      });
+        // Show first inbound message in full
+        firstInboundFull: inbound[0] ? JSON.stringify(inbound[0]).substring(0, 2000) : null,
+      };
     }
+
+    // Count chat types
+    let lidCount = 0, snetCount = 0, groupCount = 0;
+    const namesFound = [];
+    for (const c of chats) {
+      const jid = c.remoteJid || '';
+      if (jid.includes('@lid')) lidCount++;
+      else if (jid.includes('@s.whatsapp.net')) snetCount++;
+      else if (jid.includes('@g.us')) groupCount++;
+
+      // Check lastMessage.pushName
+      const pn = c.lastMessage?.pushName;
+      const fromMe = c.lastMessage?.key?.fromMe;
+      if (pn && !fromMe && pn !== 'Você') {
+        namesFound.push({ jid, pushName: pn });
+      }
+    }
+
     return res.json({
       totalChats: chats.length,
-      chatFields: chats[0] ? Object.keys(chats[0]) : [],
+      lidCount,
+      snetCount,
+      groupCount,
+      namesFromLastMessage: namesFound.length,
+      namesSample: namesFound.slice(0, 10),
+      messageDebug: msgDebug,
       sampleChat: chats[0] || null,
-      samples,
     });
   } catch (err) {
     next(err);
