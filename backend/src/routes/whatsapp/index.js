@@ -216,7 +216,8 @@ router.get('/debug-chats', requireAuth, requirePharmacy, async (req, res, next) 
       const pn = c.lastMessage?.pushName;
       const fromMe = c.lastMessage?.key?.fromMe;
       if (pn && !fromMe && pn !== 'Você') {
-        namesFound.push({ jid, pushName: pn });
+        const isValid = pn.trim().length >= 2 && !/^[\d\s\-+().]+$/.test(pn.trim()) && !pn.includes('@');
+        namesFound.push({ jid, pushName: pn, valid: isValid });
       }
     }
 
@@ -226,7 +227,9 @@ router.get('/debug-chats', requireAuth, requirePharmacy, async (req, res, next) 
       snetCount,
       groupCount,
       namesFromLastMessage: namesFound.length,
-      namesSample: namesFound.slice(0, 10),
+      validNames: namesFound.filter(n => n.valid).length,
+      validNamesSample: namesFound.filter(n => n.valid).slice(0, 30),
+      invalidNamesSample: namesFound.filter(n => !n.valid).slice(0, 5),
       messageDebug: msgDebug,
       sampleChat: chats[0] || null,
     });
