@@ -40,9 +40,13 @@ export default function ConversationsPage() {
     if (conversations.length === 0) setLoading(true);
     setError(null);
     try {
-      // Garante sessao valida antes da query
+      // Garante sessao valida antes da query (sem timeout agressivo)
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { window.location.href = '/login'; return; }
+      if (!session) {
+        // Tenta refresh antes de redirecionar
+        const { data: { session: refreshed } } = await supabase.auth.refreshSession();
+        if (!refreshed) { window.location.href = '/login'; return; }
+      }
 
       const { data, error: err } = await supabase
         .from('conversations')

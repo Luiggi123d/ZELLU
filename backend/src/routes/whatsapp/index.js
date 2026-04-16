@@ -341,14 +341,18 @@ async function handleMessagesUpsert(pharmacyId, instanceName, data) {
     try {
       const remoteJid = msg?.key?.remoteJid || msg?.remoteJid;
       if (!remoteJid) continue;
-      // Skip groups, broadcasts, LIDs (WhatsApp internal IDs), newsletters
-      if (/@g\.us|@broadcast|@lid|@newsletter/.test(remoteJid)) continue;
+      // So aceita contatos individuais reais (@s.whatsapp.net)
+      if (!remoteJid.includes('@s.whatsapp.net')) continue;
 
       const fromMe = !!(msg?.key?.fromMe);
       const phone = remoteJid.split('@')[0].replace(/[^0-9]/g, '');
       // Telefone real: 8-15 digitos
       if (!phone || phone.length < 8 || phone.length > 15) continue;
-      const pushName = msg?.pushName || null;
+      // Valida que pushName e um nome real (nao numero de telefone)
+      const rawPushName = msg?.pushName || null;
+      const pushName = (rawPushName && rawPushName.trim().length >= 2 && !/^[\d\s\-+().]+$/.test(rawPushName.trim()))
+        ? rawPushName.trim()
+        : null;
       const content = extractMessageContent(msg?.message);
       const externalId = msg?.key?.id || null;
       let timestamp = new Date().toISOString();
@@ -377,8 +381,10 @@ async function handleMessagesUpsert(pharmacyId, instanceName, data) {
           {
             pharmacy_id: pharmacyId,
             phone,
-            // Só salva pushName se o contato não tiver nome ainda
-            name: existingContact?.name || pushName || null,
+            // Preserva nome existente valido; so grava pushName se nao tem nome
+            name: (existingContact?.name && !/^[\d\s\-+().]+$/.test(existingContact.name.trim()))
+              ? existingContact.name
+              : pushName || null,
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'pharmacy_id,phone' }

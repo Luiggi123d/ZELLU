@@ -4,9 +4,6 @@ const evolution = require('./evolutionApi');
 // ============================================================
 // Pulls historical chats + messages from Evolution API and
 // upserts them into Supabase (contacts, conversations, messages).
-//
-// Agora tambem extrai pushName das mensagens para preencher
-// o nome dos contatos que vieram sem nome do findChats.
 // ============================================================
 
 function extractMessageContent(message) {
@@ -23,20 +20,41 @@ function extractMessageContent(message) {
   );
 }
 
+/**
+ * Valida se um JID e um contato real (nao LID, grupo, broadcast, etc).
+ * Retorna os digitos do telefone ou null se invalido.
+ */
 function phoneFromJid(jid) {
   if (!jid || typeof jid !== 'string') return null;
-  // Rejeita JIDs que nao sao contatos reais (LID, grupos, broadcast, newsletter)
-  if (/@lid/.test(jid) || /@g\.us/.test(jid) || /@broadcast/.test(jid) || /@newsletter/.test(jid)) return null;
+  // Rejeita JIDs que nao sao contatos individuais reais
+  if (/@lid|@g\.us|@broadcast|@newsletter|@s\.whatsapp\.net.*:/i.test(jid)) {
+    // O ultimo caso captura JIDs de status/grupos internos
+  }
+  if (!jid.includes('@s.whatsapp.net')) return null; // So aceita contatos individuais
   const digits = jid.split('@')[0].replace(/[^0-9]/g, '');
-  // Telefone real deve ter entre 8 e 15 digitos
+  // Telefone real: 8-15 digitos (cobre numeros internacionais)
   if (!digits || digits.length < 8 || digits.length > 15) return null;
   return digits;
+}
+
+/**
+ * Valida se um nome e realmente um nome humano e nao um numero de telefone.
+ * A Evolution API as vezes retorna o numero como "name" ou "pushName".
+ */
+function isValidContactName(name) {
+  if (!name || typeof name !== 'string') return false;
+  const trimmed = name.trim();
+  if (trimmed.length < 2) return false;
+  // Se e so digitos (com ou sem espacos/hifens/+), nao e nome
+  if (/^[\d\s\-+().]+$/.test(trimmed)) return false;
+  // Se parece com JID (contem @)
+  if (trimmed.includes('@')) return false;
+  return true;
 }
 
 async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {}) {
   const result = { chats: 0, contactsUpserted: 0, conversationsUpserted: 0, messagesInserted: 0, namesUpdated: 0, errors: [] };
 
-  // Get the whatsapp_instances row for this pharmacy (we need its id)
   const { data: inst } = await supabaseAdmin
     .from('whatsapp_instances')
     .select('id')
@@ -52,6 +70,7 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
   }
 
   result.chats = chats.length;
+  console.log(`[sync] Farmacia ${pharmacyId}: ${chats.length} chats encontrados`);
 
   for (const chat of chats) {
     try {
@@ -59,9 +78,11 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
       if (!remoteJid) continue;
 
       const phone = phoneFromJid(remoteJid);
-      if (!phone) continue; // Filtra LID, grupos, broadcasts, e numeros invalidos
+      if (!phone) continue;
 
-      const pushName = chat.pushName || chat.name || chat.profileName || null;
+      // Extrai pushName e valida que e um nome real (nao um numero)
+      const rawName = chat.pushName || chat.name || chat.profileName || null;
+      const pushName = isValidContactName(rawName) ? rawName.trim() : null;
 
       // Busca contato existente para nao sobrescrever nome ja salvo
       const { data: existingContact } = await supabaseAdmin
@@ -71,14 +92,18 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
         .eq('phone', phone)
         .maybeSingle();
 
+      // Preserva nome existente; so grava pushName se nao tem nome ainda
+      const contactName = (existingContact?.name && isValidContactName(existingContact.name))
+        ? existingContact.name
+        : pushName;
+
       const { data: contact, error: contactErr } = await supabaseAdmin
         .from('contacts')
         .upsert(
           {
             pharmacy_id: pharmacyId,
             phone,
-            // Preserva nome existente; so grava pushName se nao tem nome ainda
-            name: existingContact?.name || pushName || null,
+            name: contactName,
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'pharmacy_id,phone', ignoreDuplicates: false }
@@ -100,8 +125,8 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
         result.errors.push(`findMessages ${remoteJid}: ${err.message}`);
       }
 
-      // Se o contato nao tem nome, tenta extrair dos pushNames das mensagens
-      if (!contact.name && msgs.length > 0) {
+      // Se o contato AINDA nao tem nome valido, tenta extrair dos pushNames das mensagens
+      if (!isValidContactName(contact.name) && msgs.length > 0) {
         const msgPushName = extractPushNameFromMessages(msgs);
         if (msgPushName) {
           await supabaseAdmin
@@ -199,20 +224,23 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
     }
   }
 
+  console.log(`[sync] Resultado: ${result.contactsUpserted} contatos, ${result.conversationsUpserted} conversas, ${result.messagesInserted} msgs, ${result.namesUpdated} nomes atualizados`);
+  if (result.errors.length > 0) console.warn(`[sync] Erros: ${result.errors.length}`, result.errors.slice(0, 5));
+
   return result;
 }
 
 /**
  * Extrai pushName de mensagens recebidas (nao fromMe).
  * Prioriza mensagens mais recentes.
+ * Valida que o nome nao e um numero de telefone.
  */
 function extractPushNameFromMessages(msgs) {
-  // Itera de tras pra frente (mensagens mais recentes primeiro)
   for (let i = msgs.length - 1; i >= 0; i--) {
     const msg = msgs[i];
-    if (msg?.key?.fromMe) continue; // Ignora mensagens enviadas
+    if (msg?.key?.fromMe) continue;
     const name = msg?.pushName || msg?.verifiedBizName || null;
-    if (name && name.trim() && name.length > 1) {
+    if (isValidContactName(name)) {
       return name.trim();
     }
   }
