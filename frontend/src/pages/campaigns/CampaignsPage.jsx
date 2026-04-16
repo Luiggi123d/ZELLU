@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Megaphone, Clock, CheckCircle, Send, X, Calendar, ArrowLeft, Wifi, Loader2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { useAuthStore } from '../../store/authStore';
 import { api } from '../../lib/api';
+import { usePageData } from '../../hooks/usePageData';
 import { SkeletonCard } from '../../components/ui/Skeleton';
 import { showToast } from '../../components/ui/Toast';
 import EmptyState from '../../components/ui/EmptyState';
@@ -185,36 +185,22 @@ function ApprovalModal({ campaign, onConfirm, onClose }) {
 }
 
 export default function CampaignsPage() {
-  const { profile } = useAuthStore();
-  const pharmacyId = profile?.pharmacy_id;
-
-  const [loading, setLoading] = useState(true);
-  const [campaigns, setCampaigns] = useState([]);
-  const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('pending');
   const [approvalTarget, setApprovalTarget] = useState(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      const pid = profile?.pharmacy_id;
-      if (!pid) { setLoading(false); return; }
-      setLoading(true);
-      setError(null);
-      const { data, error: err } = await supabase
-        .from('campaigns')
-        .select('*')
-        .eq('pharmacy_id', pid)
-        .order('created_at', { ascending: false });
-      if (cancelled) return;
-      if (err) setError(err.message);
-      else setCampaigns(data || []);
-      setLoading(false);
-    }
-    load();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const { data: fetchedCampaigns, loading, error } = usePageData(async (pid) => {
+    const { data, error } = await supabase
+      .from('campaigns')
+      .select('*')
+      .eq('pharmacy_id', pid)
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  });
+
+  // Local state for optimistic updates (approve/reject)
+  const [campaignsOverride, setCampaignsOverride] = useState(null);
+  const campaigns = campaignsOverride ?? fetchedCampaigns ?? [];
 
   const counts = useMemo(() => ({
     pending: campaigns.filter((c) => c.status === 'draft').length,
@@ -232,8 +218,8 @@ export default function CampaignsPage() {
     const prevStatus = campaign.status;
 
     // Optimistic: marca como running na UI
-    setCampaigns((prev) =>
-      prev.map((c) =>
+    setCampaignsOverride((prev) =>
+      (prev ?? campaigns).map((c) =>
         c.id === campaign.id ? { ...c, status: 'running', speed_mode: speedMode, vary_messages: varyMessages } : c
       )
     );
@@ -262,17 +248,17 @@ export default function CampaignsPage() {
       showToast(msg);
     } catch (err) {
       // rollback
-      setCampaigns((prev) => prev.map((c) => (c.id === campaign.id ? { ...c, status: prevStatus } : c)));
+      setCampaignsOverride((prev) => (prev ?? campaigns).map((c) => (c.id === campaign.id ? { ...c, status: prevStatus } : c)));
       showToast(`Erro ao enfileirar: ${err.message}`);
     }
   }
 
   async function reject(campaign) {
     const snapshot = campaigns;
-    setCampaigns((prev) => prev.filter((c) => c.id !== campaign.id));
+    setCampaignsOverride((prev) => (prev ?? campaigns).filter((c) => c.id !== campaign.id));
     const { error: err } = await supabase.from('campaigns').delete().eq('id', campaign.id);
     if (err) {
-      setCampaigns(snapshot);
+      setCampaignsOverride(snapshot);
       showToast(`Erro ao rejeitar: ${err.message}`);
     }
   }

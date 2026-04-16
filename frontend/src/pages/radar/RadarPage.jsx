@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AlertTriangle, DollarSign, Pill, Send, Pencil, Eye, X, CheckCircle, Inbox, Radar, Wifi } from 'lucide-react';
 import { formatCurrency } from '../../lib/mockData';
 import { supabase } from '../../lib/supabase';
-import { useAuthStore } from '../../store/authStore';
 import { classifyForRadar, formatPhoneFromDigits } from '../../lib/dataHelpers';
+import { usePageData } from '../../hooks/usePageData';
 import { SkeletonCard, SkeletonList } from '../../components/ui/Skeleton';
 import EmptyState from '../../components/ui/EmptyState';
 
@@ -109,33 +109,14 @@ function EmptyColumn({ label }) {
 }
 
 export default function RadarPage() {
-  const { profile } = useAuthStore();
-  const pharmacyId = profile?.pharmacy_id;
-
-  const [loading, setLoading] = useState(true);
-  const [contacts, setContacts] = useState([]);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      const pid = profile?.pharmacy_id;
-      if (!pid) { setLoading(false); return; }
-      setLoading(true);
-      setError(null);
-      const { data, error: err } = await supabase
-        .from('contacts')
-        .select('*')
-        .eq('pharmacy_id', pid);
-      if (cancelled) return;
-      if (err) setError(err.message);
-      else setContacts(data || []);
-      setLoading(false);
-    }
-    load();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const { data: contacts = [], loading, error } = usePageData(async (pid) => {
+    const { data, error } = await supabase
+      .from('contacts')
+      .select('*')
+      .eq('pharmacy_id', pid);
+    if (error) throw error;
+    return data || [];
+  });
 
   const classified = useMemo(() => classifyForRadar(contacts), [contacts]);
 

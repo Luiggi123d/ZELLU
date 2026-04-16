@@ -54,8 +54,7 @@ export default function ConversationsPage() {
     }
     load();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [pharmacyId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Realtime subscription — refresh conversation list when anything changes.
   useEffect(() => {

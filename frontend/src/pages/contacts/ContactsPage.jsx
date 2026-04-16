@@ -1,48 +1,31 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Search, Wifi, ChevronLeft, ChevronRight, Users } from 'lucide-react';
 import { getStatusLabel, getStatusColor, timeAgo } from '../../lib/mockData';
 import { supabase } from '../../lib/supabase';
-import { useAuthStore } from '../../store/authStore';
 import { deriveContactStatus, formatPhoneFromDigits } from '../../lib/dataHelpers';
+import { usePageData } from '../../hooks/usePageData';
 import { SkeletonTable } from '../../components/ui/Skeleton';
 import EmptyState from '../../components/ui/EmptyState';
 
 const ITEMS_PER_PAGE = 10;
 
 export default function ContactsPage() {
-  const { profile } = useAuthStore();
-  const pharmacyId = profile?.pharmacy_id;
-
-  const [loading, setLoading] = useState(true);
-  const [contacts, setContacts] = useState([]);
-  const [error, setError] = useState(null);
-
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      const pid = profile?.pharmacy_id;
-      if (!pid) { setLoading(false); return; }
-      setLoading(true);
-      setError(null);
-      const { data, error: err } = await supabase
-        .from('contacts')
-        .select('*')
-        .eq('pharmacy_id', pid)
-        .order('last_purchase_at', { ascending: false, nullsFirst: false });
-      if (cancelled) return;
-      if (err) setError(err.message);
-      else setContacts((data || []).map((c) => ({ ...c, status: deriveContactStatus(c) })));
-      setLoading(false);
-    }
-    load();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const { data, loading, error } = usePageData(async (pid) => {
+    const { data, error } = await supabase
+      .from('contacts')
+      .select('*')
+      .eq('pharmacy_id', pid)
+      .order('last_purchase_at', { ascending: false, nullsFirst: false });
+    if (error) throw error;
+    return (data || []).map((c) => ({ ...c, status: deriveContactStatus(c) }));
+  });
+
+  const contacts = data || [];
 
   const counts = useMemo(() => ({
     all: contacts.length,

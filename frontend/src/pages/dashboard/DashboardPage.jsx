@@ -1,50 +1,32 @@
-import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Users, AlertTriangle, Megaphone, DollarSign, Target, Wifi, TrendingUp, TrendingDown, Zap, Clock } from 'lucide-react';
 import { formatCurrency } from '../../lib/mockData';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { computeDashboardMetrics } from '../../lib/dataHelpers';
+import { usePageData } from '../../hooks/usePageData';
 import { SkeletonCard } from '../../components/ui/Skeleton';
 import EmptyState from '../../components/ui/EmptyState';
 
 export default function DashboardPage() {
   const { profile } = useAuthStore();
-  const pharmacyId = profile?.pharmacy_id;
   const firstName = (profile?.full_name || '').split(' ')[0];
 
-  const [loading, setLoading] = useState(true);
-  const [contacts, setContacts] = useState([]);
-  const [campaigns, setCampaigns] = useState([]);
-  const [error, setError] = useState(null);
+  const { data, loading, error } = usePageData(async (pid) => {
+    const [contactsRes, campaignsRes] = await Promise.all([
+      supabase.from('contacts').select('*').eq('pharmacy_id', pid),
+      supabase.from('campaigns').select('*').eq('pharmacy_id', pid),
+    ]);
+    if (contactsRes.error) throw contactsRes.error;
+    if (campaignsRes.error) throw campaignsRes.error;
+    return {
+      contacts: contactsRes.data || [],
+      campaigns: campaignsRes.data || [],
+    };
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      const pid = profile?.pharmacy_id;
-      if (!pid) { setLoading(false); return; }
-      setLoading(true);
-      setError(null);
-      try {
-        const [contactsRes, campaignsRes] = await Promise.all([
-          supabase.from('contacts').select('*').eq('pharmacy_id', pid),
-          supabase.from('campaigns').select('*').eq('pharmacy_id', pid),
-        ]);
-        if (contactsRes.error) throw contactsRes.error;
-        if (campaignsRes.error) throw campaignsRes.error;
-        if (cancelled) return;
-        setContacts(contactsRes.data || []);
-        setCampaigns(campaignsRes.data || []);
-      } catch (err) {
-        if (!cancelled) setError(err.message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const contacts = data?.contacts || [];
+  const campaigns = data?.campaigns || [];
 
   if (loading) {
     return (

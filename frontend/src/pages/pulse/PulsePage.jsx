@@ -95,7 +95,7 @@ export default function PulsePage() {
   const load = useCallback(async () => {
     if (!pharmacyId) { setLoading(false); return; }
     setLoading(true);
-
+    try {
     const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const since7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -159,10 +159,17 @@ export default function PulsePage() {
     setComplaints(complaintsRes.data || []);
     setEvents(eventsRes.data || []);
     setOnboardingStatus(pharmacyRes.data?.onboarding_status || 'pending');
-    setLoading(false);
+    } catch (err) {
+      console.error('[pulse] load error:', err);
+    } finally {
+      setLoading(false);
+    }
   }, [pharmacyId]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    if (!pharmacyId) return;
+    load();
+  }, [pharmacyId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Polling enquanto onboarding está processando
   useEffect(() => {
