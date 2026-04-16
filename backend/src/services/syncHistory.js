@@ -95,7 +95,7 @@ function resolveChat(chat) {
     name = lastMsgPushName.trim();
   }
 
-  return { phone, whatsappJid, name };
+  return { phone, whatsappJid, originalJid: remoteJid, name };
 }
 
 /**
@@ -205,6 +205,22 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
   result.chats = rawChats.length;
   console.log(`[sync] Farmacia ${pharmacyId}: ${rawChats.length} chats brutos encontrados`);
 
+  // Step 1b: Fetch contacts from Evolution API (has pushName/display names)
+  let contactNameMap = new Map(); // remoteJid -> pushName
+  try {
+    const evoContacts = await evolution.findContacts(pharmacyId);
+    for (const c of evoContacts) {
+      const jid = c.remoteJid || '';
+      const name = c.pushName || c.name || null;
+      if (jid && name && isValidContactName(name)) {
+        contactNameMap.set(jid, name.trim());
+      }
+    }
+    console.log(`[sync] ${contactNameMap.size} nomes encontrados via findContacts (de ${evoContacts.length} contatos)`);
+  } catch (err) {
+    console.warn(`[sync] findContacts failed (non-fatal): ${err.message}`);
+  }
+
   // Step 2: Resolve and deduplicate chats
   const contactMap = deduplicateChats(rawChats);
   result.uniqueContacts = contactMap.size;
@@ -223,10 +239,13 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
         .eq('phone', phone)
         .maybeSingle();
 
-      // Preserve existing name if it's valid; otherwise use the name from chat
+      // Resolve name: existing > findContacts (by whatsapp JID or original LID) > lastMessage.pushName
+      const evoName = contactNameMap.get(chatInfo.whatsappJid)
+        || contactNameMap.get(chatInfo.originalJid)
+        || null;
       const contactName = (existingContact?.name && isValidContactName(existingContact.name))
         ? existingContact.name
-        : chatInfo.name;
+        : (evoName || chatInfo.name);
 
       const { data: contact, error: contactErr } = await supabaseAdmin
         .from('contacts')
