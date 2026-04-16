@@ -174,6 +174,49 @@ router.post('/sync-history', requireAuth, requirePharmacy, async (req, res, next
 });
 
 // ============================================================
+// GET /api/whatsapp/debug-chats
+// TEMPORARIO — mostra raw data da Evolution API para diagnostico
+// ============================================================
+router.get('/debug-chats', requireAuth, requirePharmacy, async (req, res, next) => {
+  try {
+    const chats = await evolution.findChats(req.pharmacyId);
+    // Pega amostra de 3 chats com mensagens
+    const samples = [];
+    for (const chat of chats.slice(0, 5)) {
+      const jid = chat.remoteJid || chat.id || chat.key?.remoteJid;
+      let msgs = [];
+      if (jid && jid.includes('@s.whatsapp.net')) {
+        try { msgs = await evolution.findMessages(req.pharmacyId, jid, 3); } catch (e) { msgs = [{ error: e.message }]; }
+      }
+      samples.push({
+        rawChat: chat,
+        jid,
+        chatKeys: Object.keys(chat || {}),
+        firstMsgKeys: msgs[0] ? Object.keys(msgs[0]) : [],
+        firstMsgPushName: msgs[0]?.pushName || null,
+        firstMsgVerifiedBizName: msgs[0]?.verifiedBizName || null,
+        msgsCount: msgs.length,
+        msgsSample: msgs.slice(0, 2).map(m => ({
+          pushName: m?.pushName,
+          verifiedBizName: m?.verifiedBizName,
+          key: m?.key,
+          messageTimestamp: m?.messageTimestamp,
+          hasMessage: !!m?.message,
+        })),
+      });
+    }
+    return res.json({
+      totalChats: chats.length,
+      chatFields: chats[0] ? Object.keys(chats[0]) : [],
+      sampleChat: chats[0] || null,
+      samples,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ============================================================
 // GET /api/whatsapp/webhook-info
 // Returns the current webhook config reported by Evolution API,
 // plus the expected URL so we can diagnose mismatches.
