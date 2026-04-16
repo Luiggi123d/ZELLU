@@ -341,11 +341,13 @@ async function handleMessagesUpsert(pharmacyId, instanceName, data) {
     try {
       const remoteJid = msg?.key?.remoteJid || msg?.remoteJid;
       if (!remoteJid) continue;
-      // Skip group chats for now
-      if (remoteJid.includes('@g.us')) continue;
+      // Skip groups, broadcasts, LIDs (WhatsApp internal IDs), newsletters
+      if (/@g\.us|@broadcast|@lid|@newsletter/.test(remoteJid)) continue;
 
       const fromMe = !!(msg?.key?.fromMe);
-      const phone = remoteJid.split('@')[0];
+      const phone = remoteJid.split('@')[0].replace(/[^0-9]/g, '');
+      // Telefone real: 8-15 digitos
+      if (!phone || phone.length < 8 || phone.length > 15) continue;
       const pushName = msg?.pushName || null;
       const content = extractMessageContent(msg?.message);
       const externalId = msg?.key?.id || null;

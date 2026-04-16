@@ -25,7 +25,12 @@ function extractMessageContent(message) {
 
 function phoneFromJid(jid) {
   if (!jid || typeof jid !== 'string') return null;
-  return jid.split('@')[0].replace(/[^0-9]/g, '') || null;
+  // Rejeita JIDs que nao sao contatos reais (LID, grupos, broadcast, newsletter)
+  if (/@lid/.test(jid) || /@g\.us/.test(jid) || /@broadcast/.test(jid) || /@newsletter/.test(jid)) return null;
+  const digits = jid.split('@')[0].replace(/[^0-9]/g, '');
+  // Telefone real deve ter entre 8 e 15 digitos
+  if (!digits || digits.length < 8 || digits.length > 15) return null;
+  return digits;
 }
 
 async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {}) {
@@ -51,21 +56,29 @@ async function syncHistoryForPharmacy(pharmacyId, { messagesPerChat = 20 } = {})
   for (const chat of chats) {
     try {
       const remoteJid = chat.remoteJid || chat.id || chat.key?.remoteJid;
-      if (!remoteJid || remoteJid.includes('@g.us') || remoteJid.includes('@broadcast')) continue;
+      if (!remoteJid) continue;
 
       const phone = phoneFromJid(remoteJid);
-      if (!phone) continue;
+      if (!phone) continue; // Filtra LID, grupos, broadcasts, e numeros invalidos
 
       const pushName = chat.pushName || chat.name || chat.profileName || null;
 
-      // Upsert contact (sem sobrescrever nome existente)
+      // Busca contato existente para nao sobrescrever nome ja salvo
+      const { data: existingContact } = await supabaseAdmin
+        .from('contacts')
+        .select('id, name')
+        .eq('pharmacy_id', pharmacyId)
+        .eq('phone', phone)
+        .maybeSingle();
+
       const { data: contact, error: contactErr } = await supabaseAdmin
         .from('contacts')
         .upsert(
           {
             pharmacy_id: pharmacyId,
             phone,
-            name: pushName || null,
+            // Preserva nome existente; so grava pushName se nao tem nome ainda
+            name: existingContact?.name || pushName || null,
             updated_at: new Date().toISOString(),
           },
           { onConflict: 'pharmacy_id,phone', ignoreDuplicates: false }
