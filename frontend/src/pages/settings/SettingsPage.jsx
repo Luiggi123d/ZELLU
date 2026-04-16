@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Wifi, WifiOff, Building2, Bell, CreditCard, Save, CheckCircle, Loader2, RefreshCw } from 'lucide-react';
+import { Wifi, WifiOff, Building2, Bell, CreditCard, Save, CheckCircle, Loader2, RefreshCw, Zap } from 'lucide-react';
 import { maskCNPJ, maskPhone } from '../../lib/masks';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
@@ -358,6 +358,33 @@ export default function SettingsPage() {
             <p className="mt-2 text-sm text-zellu-300">Acesso completo a todas as funcionalidades.</p>
           </div>
           <button className="flex h-10 items-center rounded-lg bg-white px-6 text-sm font-bold text-zellu-700 hover:bg-zellu-50">Fazer upgrade</button>
+        </div>
+      </div>
+      {/* Ferramentas */}
+      <div className="card p-6">
+        <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-gray-900">
+          <Zap size={18} />Ferramentas
+        </h2>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between rounded-lg border border-gray-200 p-4">
+            <div>
+              <p className="text-sm font-medium text-gray-900">Reprocessar análise de IA</p>
+              <p className="text-xs text-gray-500">Força a IA a reanalisar todas as conversas dos últimos 30 dias</p>
+            </div>
+            <button
+              onClick={async () => {
+                try {
+                  await api.post('/whatsapp/reprocess-ai', {});
+                  showToast('✅ Reprocessamento iniciado! Pode levar alguns minutos.');
+                } catch (err) {
+                  showToast(`Erro: ${err.message}`);
+                }
+              }}
+              className="flex items-center gap-2 rounded-lg bg-zellu-600 px-4 py-2 text-sm font-medium text-white hover:bg-zellu-700"
+            >
+              <Zap size={14} />Reprocessar
+            </button>
+          </div>
         </div>
       </div>
     </div>
