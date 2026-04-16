@@ -1,15 +1,8 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, MessageSquare, Radar, Megaphone, Zap, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Eye, EyeOff, MessageSquare, Radar, Megaphone, Zap, ArrowRight, ArrowLeft, Users, AlertTriangle, Activity } from 'lucide-react';
 import { isValidEmail, maskPhone } from '../../lib/masks';
 import { useAuthStore } from '../../store/authStore';
-
-const benefits = [
-  { icon: MessageSquare, title: 'CRM automático por WhatsApp', desc: 'Gerencie todos os contatos e conversas em um só lugar' },
-  { icon: Radar, title: 'Radar de clientes em risco', desc: 'Saiba quem está sumindo antes de perdê-lo' },
-  { icon: Megaphone, title: 'Campanhas com aprovação manual', desc: 'IA sugere, você decide quando enviar' },
-  { icon: Zap, title: 'Configurado em 5 minutos', desc: 'Conecte seu WhatsApp e comece a usar' },
-];
 
 export default function SignUpPage() {
   const [step, setStep] = useState(1);
@@ -54,10 +47,10 @@ export default function SignUpPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 py-12">
-      <div className="flex w-full max-w-4xl overflow-hidden rounded-2xl bg-white shadow-lg">
-        {/* Left — Form */}
-        <div className="w-1/2 p-8">
+    <div className="flex min-h-screen">
+      {/* Coluna esquerda — formulário */}
+      <div className="flex w-full flex-col items-center justify-center px-8 py-12 lg:w-1/2">
+        <div className="w-full max-w-md">
           <div className="mb-6">
             <h1 className="text-2xl font-bold text-zellu-700">Zellu</h1>
             <p className="mt-1 text-sm text-gray-500">Cadastre sua farmácia</p>
@@ -121,22 +114,36 @@ export default function SignUpPage() {
 
           <p className="mt-6 text-center text-sm text-gray-500">Já tem conta? <Link to="/login" className="font-medium text-zellu-600 hover:underline">Entrar</Link></p>
         </div>
+      </div>
 
-        {/* Right — Benefits */}
-        <div className="flex w-1/2 flex-col justify-center bg-zellu-700 p-8 text-white">
-          <h2 className="text-xl font-bold">O que você ganha com o Zellu</h2>
-          <div className="mt-6 space-y-5">
-            {benefits.map(({ icon: Icon, title, desc }) => (
+      {/* Coluna direita — benefícios (só desktop) */}
+      <div className="hidden lg:flex lg:w-1/2 flex-col items-center justify-center bg-zellu-800 px-12 text-white">
+        <div className="max-w-sm">
+          <div className="mb-8">
+            <h2 className="text-2xl font-bold mb-2">O CRM que sua farmácia precisa</h2>
+            <p className="text-zellu-300 text-sm">Pare de perder clientes sem saber. O Zellu monitora, alerta e age por você.</p>
+          </div>
+          <div className="space-y-5">
+            {[
+              { icon: Users, title: 'Base de clientes organizada', desc: 'Todos os seus contatos do WhatsApp, classificados automaticamente' },
+              { icon: AlertTriangle, title: 'Alertas de clientes em risco', desc: 'Saiba antes de perder — o Radar avisa quem está sumindo' },
+              { icon: Megaphone, title: 'Campanhas com 1 clique', desc: 'A IA sugere, você aprova. Simples assim.' },
+              { icon: Activity, title: 'Pulse da sua farmácia', desc: 'Saúde do negócio em tempo real, sem planilha' },
+            ].map(({ icon: Icon, title, desc }) => (
               <div key={title} className="flex items-start gap-3">
-                <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-white/10">
-                  <Icon size={20} className="text-zellu-200" />
+                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-zellu-700">
+                  <Icon size={16} className="text-zellu-300" />
                 </div>
                 <div>
-                  <p className="font-medium">{title}</p>
-                  <p className="text-sm text-zellu-300">{desc}</p>
+                  <p className="text-sm font-semibold text-white">{title}</p>
+                  <p className="text-xs text-zellu-400">{desc}</p>
                 </div>
               </div>
             ))}
+          </div>
+          <div className="mt-8 rounded-xl bg-zellu-700/50 p-4">
+            <p className="text-sm text-zellu-200 italic">"Recuperei R$12.400 em clientes inativos no primeiro mês."</p>
+            <p className="mt-2 text-xs text-zellu-400">— Dono de farmácia independente, Natal/RN</p>
           </div>
         </div>
       </div>

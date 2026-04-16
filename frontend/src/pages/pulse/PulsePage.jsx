@@ -4,9 +4,9 @@ import { useAuthStore } from '../../store/authStore';
 import { timeAgo, formatCurrency } from '../../lib/mockData';
 import { SkeletonCard } from '../../components/ui/Skeleton';
 import {
-  Activity, TrendingUp, TrendingDown, AlertCircle,
-  MessageSquare, Megaphone, UserCheck, Loader2,
-  ThumbsDown, ChevronDown, ChevronUp, Zap,
+  Heart, MessageCircle, BarChart2, Activity, TrendingUp, TrendingDown,
+  AlertCircle, MessageSquare, Megaphone, UserCheck, Loader2,
+  ThumbsDown, ChevronDown, ChevronUp, Zap, CheckCircle, Clock,
 } from 'lucide-react';
 
 // -- Helpers -------------------------------------------------
@@ -20,9 +20,9 @@ function SentimentBar({ positive, neutral, negative, total }) {
         {negative > 0 && <div className="bg-red-400 transition-all" style={{ width: `${(negative / total) * 100}%` }} />}
       </div>
       <div className="flex justify-between text-xs">
-        <span className="text-emerald-600">😊 {positive} satisfeitos</span>
-        <span className="text-gray-400">😐 {neutral} neutros</span>
-        <span className="text-red-500">😞 {negative} insatisfeitos</span>
+        <span className="flex items-center gap-1 text-emerald-600"><CheckCircle size={11} /> {positive} satisfeitos</span>
+        <span className="flex items-center gap-1 text-gray-400"><Activity size={11} /> {neutral} neutros</span>
+        <span className="flex items-center gap-1 text-red-500"><AlertCircle size={11} /> {negative} insatisfeitos</span>
       </div>
     </div>
   );
@@ -215,9 +215,9 @@ export default function PulsePage() {
       {/* Tabs */}
       <div className="flex gap-1 border-b border-gray-200">
         {[
-          { key: 'pulse', label: '💓 Pulso da Farmácia' },
-          { key: 'voice', label: '🗣️ Voz do Cliente' },
-        ].map(({ key, label }) => (
+          { key: 'pulse', label: 'Pulso da Farmácia', icon: Heart },
+          { key: 'voice', label: 'Voz do Cliente', icon: MessageCircle },
+        ].map(({ key, label, icon: TabIcon }) => (
           <button
             key={key}
             onClick={() => setActiveTab(key)}
@@ -227,7 +227,7 @@ export default function PulsePage() {
                 : 'border-transparent text-gray-500 hover:text-gray-700'
             }`}
           >
-            {label}
+            <span className="flex items-center gap-1.5"><TabIcon size={14} /> {label}</span>
             {key === 'voice' && complaints.length > 0 && (
               <span className="ml-2 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
                 {complaints.length}
@@ -269,14 +269,14 @@ export default function PulsePage() {
 
           {/* Sentimento geral */}
           <div className="card p-6">
-            <h2 className="mb-1 text-base font-semibold text-gray-900">😊 Humor da base</h2>
+            <h2 className="mb-1 flex items-center gap-2 text-base font-semibold text-gray-900"><BarChart2 size={16} className="text-zellu-600" /> Humor da base</h2>
             <p className="mb-4 text-xs text-gray-400">Baseado nas conversas dos últimos 30 dias</p>
             <SentimentBar {...(pulseData?.sentiment || { positive: 0, neutral: 0, negative: 0, total: 0 })} />
           </div>
 
           {/* Linha do tempo */}
           <div className="card p-6">
-            <h2 className="mb-4 text-base font-semibold text-gray-900">📋 Linha do tempo</h2>
+            <h2 className="mb-4 flex items-center gap-2 text-base font-semibold text-gray-900"><Clock size={16} className="text-gray-500" /> Linha do tempo</h2>
             {events.length === 0 ? (
               <p className="py-4 text-center text-sm text-gray-400">
                 Os eventos da sua farmácia aparecerão aqui conforme o Zellu trabalha.
@@ -314,7 +314,7 @@ export default function PulsePage() {
           <div className="card p-6">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="text-base font-semibold text-gray-900">🗣️ O que seus clientes estão dizendo</h2>
+                <h2 className="flex items-center gap-2 text-base font-semibold text-gray-900"><MessageCircle size={16} className="text-zellu-600" /> O que seus clientes estão dizendo</h2>
                 <p className="text-xs text-gray-400 mt-0.5">Últimos 30 dias · análise automática por IA</p>
               </div>
               <div className={`rounded-full px-3 py-1 text-xs font-medium ${
@@ -324,7 +324,7 @@ export default function PulsePage() {
                   ? 'bg-amber-100 text-amber-700'
                   : 'bg-red-100 text-red-700'
               }`}>
-                {complaints.length === 0 ? 'Sem reclamações' : `${complaints.length} reclamações`}
+                {complaints.length === 0 ? (<span className="flex items-center gap-1"><CheckCircle size={12} /> Sem reclamações</span>) : `${complaints.length} reclamações`}
               </div>
             </div>
 

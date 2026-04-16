@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Users, AlertTriangle, Megaphone, DollarSign, Target, Wifi, TrendingUp, Zap, Clock } from 'lucide-react';
+import { Users, AlertTriangle, Megaphone, DollarSign, Target, Wifi, TrendingUp, TrendingDown, Zap, Clock } from 'lucide-react';
 import { formatCurrency } from '../../lib/mockData';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
@@ -75,7 +75,7 @@ export default function DashboardPage() {
   if (!hasData) {
     return (
       <div className="space-y-6">
-        <div className="rounded-xl bg-[#16a34a] p-6 text-white">
+        <div className="rounded-xl bg-zellu-700 p-6 text-white">
           <h1 className="text-2xl font-bold">Bem-vindo{firstName ? `, ${firstName}` : ''}!</h1>
           <p className="mt-1 text-white/80">Conecte seu WhatsApp para começar a receber contatos e mensagens automaticamente.</p>
         </div>
@@ -98,7 +98,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="rounded-xl bg-[#16a34a] p-6 text-white">
+      <div className="rounded-xl bg-zellu-700 p-6 text-white">
         <h1 className="text-2xl font-bold">Bom dia{firstName ? `, ${firstName}` : ''}!</h1>
         <p className="mt-1 text-white/80">
           {metrics.atRisk > 0 ? (
@@ -111,38 +111,67 @@ export default function DashboardPage() {
 
       {/* Metrics */}
       <div className="grid grid-cols-4 gap-4">
-        <div className="card p-5">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-500">Total de clientes</p>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-zellu-50"><Users size={16} className="text-zellu-600" /></div>
+        {[
+          {
+            label: 'Total de clientes',
+            value: metrics.total,
+            sub: 'cadastrados',
+            icon: Users,
+            iconBg: 'bg-zellu-50',
+            iconColor: 'text-zellu-600',
+            trend: null,
+          },
+          {
+            label: 'Clientes em risco',
+            value: metrics.atRisk,
+            sub: 'perdidos + esfriando',
+            icon: AlertTriangle,
+            iconBg: 'bg-red-50',
+            iconColor: 'text-red-600',
+            valueColor: 'text-red-600',
+            trend: metrics.atRisk > 0 ? 'down' : 'up',
+            trendLabel: metrics.atRisk > 0 ? 'requer atenção' : 'tudo ok',
+          },
+          {
+            label: 'Campanhas pendentes',
+            value: metrics.pendingCampaigns,
+            sub: 'aguardando aprovação',
+            icon: Megaphone,
+            iconBg: 'bg-amber-50',
+            iconColor: 'text-amber-600',
+            valueColor: metrics.pendingCampaigns > 0 ? 'text-amber-600' : 'text-gray-900',
+            trend: null,
+          },
+          {
+            label: 'Receita em risco',
+            value: formatCurrency(metrics.revenueAtRisk),
+            sub: 'estimativa clientes em risco',
+            icon: DollarSign,
+            iconBg: 'bg-gray-100',
+            iconColor: 'text-gray-600',
+            trend: metrics.revenueAtRisk > 0 ? 'down' : null,
+            trendLabel: metrics.revenueAtRisk > 0 ? 'para recuperar' : null,
+          },
+        ].map(({ label, value, sub, icon: Icon, iconBg, iconColor, valueColor, trend, trendLabel }) => (
+          <div key={label} className="card p-5">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-500">{label}</p>
+              <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${iconBg}`}>
+                <Icon size={16} className={iconColor} />
+              </div>
+            </div>
+            <p className={`mt-2 text-3xl font-bold ${valueColor || 'text-gray-900'}`}>{value}</p>
+            <div className="mt-1 flex items-center gap-1.5">
+              <p className="text-xs text-gray-400">{sub}</p>
+              {trend && (
+                <span className={`flex items-center gap-0.5 text-xs font-medium ${trend === 'up' ? 'text-emerald-600' : 'text-red-500'}`}>
+                  {trend === 'up' ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+                  {trendLabel}
+                </span>
+              )}
+            </div>
           </div>
-          <p className="mt-2 text-3xl font-bold text-gray-900">{metrics.total}</p>
-          <p className="mt-1 text-xs text-gray-400">cadastrados</p>
-        </div>
-        <div className="card p-5">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-500">Clientes em risco</p>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-50"><AlertTriangle size={16} className="text-red-600" /></div>
-          </div>
-          <p className="mt-2 text-3xl font-bold text-red-600">{metrics.atRisk}</p>
-          <p className="mt-1 text-xs text-gray-400">perdidos + esfriando</p>
-        </div>
-        <div className="card p-5">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-500">Campanhas pendentes</p>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50"><Megaphone size={16} className="text-amber-600" /></div>
-          </div>
-          <p className="mt-2 text-3xl font-bold text-amber-600">{metrics.pendingCampaigns}</p>
-          <p className="mt-1 text-xs text-gray-400">aguardando aprovação</p>
-        </div>
-        <div className="card p-5">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-500">Receita em risco</p>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gray-100"><DollarSign size={16} className="text-gray-600" /></div>
-          </div>
-          <p className="mt-2 text-3xl font-bold text-gray-900">{formatCurrency(metrics.revenueAtRisk)}</p>
-          <p className="mt-1 text-xs text-gray-400">estimativa dos clientes em risco</p>
-        </div>
+        ))}
       </div>
 
       {/* Two action cards */}
@@ -230,19 +259,33 @@ export default function DashboardPage() {
           )}
         </div>
         <div className="card bg-zellu-50 p-5">
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-zellu-800"><Zap size={16} className="text-zellu-600" />Impacto do Zellu</h2>
-          <div className="space-y-2">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-zellu-800">
+            <Zap size={16} className="text-zellu-600" />Impacto do Zellu
+          </h2>
+          <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-xs text-gray-600"><Users size={12} />Contatos</span>
+              <span className="flex items-center gap-1.5 text-xs text-gray-600">
+                <Users size={12} />Contatos monitorados
+              </span>
               <span className="text-sm font-bold text-zellu-700">{metrics.total}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-xs text-gray-600"><TrendingUp size={12} />Ativos</span>
-              <span className="text-sm font-bold text-zellu-700">{metrics.active}</span>
+              <span className="flex items-center gap-1.5 text-xs text-gray-600">
+                <TrendingUp size={12} />Clientes ativos
+              </span>
+              <span className="text-sm font-bold text-emerald-600">{metrics.active}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="flex items-center gap-1.5 text-xs text-gray-600"><Clock size={12} />Em risco</span>
-              <span className="text-sm font-bold text-zellu-700">{metrics.atRisk}</span>
+              <span className="flex items-center gap-1.5 text-xs text-gray-600">
+                <Clock size={12} />Em risco
+              </span>
+              <span className="text-sm font-bold text-red-500">{metrics.atRisk}</span>
+            </div>
+            <div className="mt-2 border-t border-zellu-200 pt-2">
+              <p className="text-xs text-zellu-600">
+                Receita potencial a recuperar
+              </p>
+              <p className="text-lg font-bold text-zellu-700">{formatCurrency(metrics.revenueAtRisk)}</p>
             </div>
           </div>
         </div>
