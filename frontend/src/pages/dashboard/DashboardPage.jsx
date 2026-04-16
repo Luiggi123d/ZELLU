@@ -175,7 +175,7 @@ export default function DashboardPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${c.status === 'lost' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
-                      {c.days ?? '—'}d
+                      {c.days != null ? `${c.days}d` : 'Sem compras'}
                     </span>
                     <Link to="/radar" className="rounded-lg bg-zellu-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-zellu-700">Agir</Link>
                   </div>

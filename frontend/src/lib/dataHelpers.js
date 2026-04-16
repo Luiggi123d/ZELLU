@@ -69,7 +69,9 @@ export function computeDashboardMetrics({ contacts = [], campaigns = [] } = {}) 
     active: classified.active.length + classified.observation.length,
     cooling: classified.cooling.length,
     lost: classified.lost.length,
-    urgentClients: [...classified.lost, ...classified.cooling].slice(0, 3),
+    urgentClients: [...classified.lost, ...classified.cooling]
+      .filter((c) => c.last_purchase_at || c.ai_behavior !== 'unknown')
+      .slice(0, 3),
   };
 }
 
