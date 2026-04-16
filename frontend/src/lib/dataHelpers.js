@@ -29,6 +29,7 @@ export function daysSince(dateString) {
  * Splits contacts into radar buckets based on classification.
  */
 export function classifyForRadar(contacts = []) {
+  if (!contacts || !Array.isArray(contacts)) return { lost: [], cooling: [], observation: [], active: [] };
   const buckets = { lost: [], cooling: [], observation: [], active: [] };
   for (const c of contacts) {
     const status = deriveContactStatus(c);
@@ -44,7 +45,9 @@ export function classifyForRadar(contacts = []) {
 /**
  * Computes pharmacy-wide KPIs from real data.
  */
-export function computeDashboardMetrics({ contacts = [], campaigns = [] }) {
+export function computeDashboardMetrics({ contacts = [], campaigns = [] } = {}) {
+  if (!contacts || !Array.isArray(contacts)) contacts = [];
+  if (!campaigns || !Array.isArray(campaigns)) campaigns = [];
   const total = contacts.length;
   const classified = classifyForRadar(contacts);
   const atRisk = classified.lost.length + classified.cooling.length;

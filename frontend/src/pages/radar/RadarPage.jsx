@@ -109,7 +109,7 @@ function EmptyColumn({ label }) {
 }
 
 export default function RadarPage() {
-  const { data: contacts = [], loading, error } = usePageData(async (pid) => {
+  const { data, loading, error } = usePageData(async (pid) => {
     const { data, error } = await supabase
       .from('contacts')
       .select('*')
@@ -118,6 +118,7 @@ export default function RadarPage() {
     return data || [];
   });
 
+  const contacts = data || [];
   const classified = useMemo(() => classifyForRadar(contacts), [contacts]);
 
   if (loading) {
