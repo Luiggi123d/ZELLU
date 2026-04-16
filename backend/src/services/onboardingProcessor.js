@@ -126,21 +126,29 @@ async function processOnboardingHistory(pharmacyId) {
       return;
     }
 
-    console.log(`[onboarding] Processando ${conversations.length} conversas...`);
+    // Limite máximo de conversas no onboarding inicial
+    const conversationsToProcess = conversations.slice(0, 50);
+    console.log(`[onboarding] Processando ${conversationsToProcess.length} de ${conversations.length} conversas`);
     let processed = 0;
 
-    for (const conv of conversations) {
+    for (const conv of conversationsToProcess) {
       try {
-        // Analisa sentimento e reclamações
-        await analyzeConversationSentiment(pharmacyId, conv.id);
-        // Enriquece contato via IA (nome, comportamento, interesses, compras)
-        await enrichContact(pharmacyId, conv.contact_id, conv.id);
+        // Timeout de 30s por conversa para não travar
+        await Promise.race([
+          Promise.all([
+            analyzeConversationSentiment(pharmacyId, conv.id),
+            enrichContact(pharmacyId, conv.contact_id, conv.id),
+          ]),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('timeout')), 30000)
+          ),
+        ]);
         processed++;
-        // Delay para não sobrecarregar a API
-        await new Promise((r) => setTimeout(r, 800));
       } catch (err) {
-        console.error(`[onboarding] Erro na conversa ${conv.id}:`, err.message);
+        console.error(`[onboarding] Conversa ${conv.id} falhou:`, err.message);
+        // Continua para próxima conversa mesmo com erro
       }
+      await new Promise((r) => setTimeout(r, 500));
     }
 
     // Gera evento de onboarding completo
