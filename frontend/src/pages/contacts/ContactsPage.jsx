@@ -150,9 +150,9 @@ export default function ContactsPage() {
           />
         </div>
       ) : (
-        <>
-          <div className="card overflow-hidden">
-            <table className="w-full">
+        <div className="card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-0">
               <thead>
                 <tr className="border-b border-gray-100 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                   <th className="px-6 py-3">Cliente</th>
@@ -180,21 +180,65 @@ export default function ContactsPage() {
             </table>
           </div>
 
+          {/* Paginação inteligente */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
               <p className="text-xs text-gray-400">
-                Mostrando {(page - 1) * ITEMS_PER_PAGE + 1}-{Math.min(page * ITEMS_PER_PAGE, filtered.length)} de {filtered.length}
+                Mostrando {(page - 1) * ITEMS_PER_PAGE + 1}–{Math.min(page * ITEMS_PER_PAGE, filtered.length)} de {filtered.length}
               </p>
-              <div className="flex gap-1">
-                <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30"><ChevronLeft size={16} /></button>
-                {Array.from({ length: totalPages }, (_, i) => (
-                  <button key={i} onClick={() => setPage(i + 1)} className={`flex h-9 w-9 items-center justify-center rounded-lg text-sm font-medium ${page === i + 1 ? 'bg-zellu-600 text-white' : 'border border-gray-200 text-gray-600 hover:bg-gray-50'}`}>{i + 1}</button>
-                ))}
-                <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-30"><ChevronRight size={16} /></button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft size={14} />
+                </button>
+
+                {(() => {
+                  const pages = [];
+                  const delta = 2;
+                  const left = Math.max(2, page - delta);
+                  const right = Math.min(totalPages - 1, page + delta);
+
+                  pages.push(1);
+                  if (left > 2) pages.push('...');
+                  for (let i = left; i <= right; i++) pages.push(i);
+                  if (right < totalPages - 1) pages.push('...');
+                  if (totalPages > 1) pages.push(totalPages);
+
+                  return pages.map((p, idx) =>
+                    p === '...' ? (
+                      <span key={`dots-${idx}`} className="flex h-8 w-8 items-center justify-center text-xs text-gray-400">
+                        ...
+                      </span>
+                    ) : (
+                      <button
+                        key={p}
+                        onClick={() => setPage(p)}
+                        className={`flex h-8 w-8 items-center justify-center rounded-lg text-xs font-medium transition-colors ${
+                          page === p
+                            ? 'bg-zellu-600 text-white'
+                            : 'text-gray-600 hover:bg-gray-100'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    )
+                  );
+                })()}
+
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                >
+                  <ChevronRight size={14} />
+                </button>
               </div>
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );
