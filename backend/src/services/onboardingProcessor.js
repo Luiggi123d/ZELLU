@@ -3,6 +3,7 @@
 // Roda em background sem bloquear o usuário.
 // ============================================================
 const { supabaseAdmin } = require('../config/supabase');
+const { enrichContact } = require('./aiPipeline');
 
 const ONBOARDING_DAYS = 30;
 
@@ -132,6 +133,8 @@ async function processOnboardingHistory(pharmacyId) {
       try {
         // Analisa sentimento e reclamações
         await analyzeConversationSentiment(pharmacyId, conv.id);
+        // Enriquece contato via IA (nome, comportamento, interesses, compras)
+        await enrichContact(pharmacyId, conv.contact_id, conv.id);
         processed++;
         // Delay para não sobrecarregar a API
         await new Promise((r) => setTimeout(r, 800));

@@ -4,6 +4,7 @@ const { requireAuth, requirePharmacy } = require('../../middleware/auth');
 const evolution = require('../../services/evolutionApi');
 const { syncHistoryForPharmacy } = require('../../services/syncHistory');
 const { processOnboardingHistory } = require('../../services/onboardingProcessor');
+const { runRealtime } = require('../../services/aiPipeline');
 
 const router = Router();
 
@@ -509,6 +510,11 @@ async function handleMessagesUpsert(pharmacyId, instanceName, data) {
         external_id: externalId,
         created_at: timestamp,
       });
+
+      // Dispara enriquecimento IA para mensagens do cliente
+      if (!fromMe && contact?.id) {
+        runRealtime(pharmacyId, contact.id, conversationId).catch(() => {});
+      }
     } catch (err) {
       console.error('[whatsapp webhook] message save error:', err.message);
     }

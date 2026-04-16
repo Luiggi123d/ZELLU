@@ -63,6 +63,10 @@ app.use('/api', routes);
 const { startCampaignSenderJob } = require('./services/campaignSender');
 startCampaignSenderJob();
 
+// Inicia batch diário de enriquecimento IA (roda às 3h)
+const { startDailyBatchJob } = require('./services/aiPipeline');
+startDailyBatchJob();
+
 // Error handling
 app.use(errorHandler);
 
