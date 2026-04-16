@@ -22,7 +22,9 @@ export function deriveContactStatus(contact) {
 
 export function daysSince(dateString) {
   if (!dateString) return null;
-  return Math.floor((Date.now() - new Date(dateString).getTime()) / DAY_MS);
+  const days = Math.floor((Date.now() - new Date(dateString).getTime()) / DAY_MS);
+  if (isNaN(days) || days < 0) return null;
+  return days;
 }
 
 /**
@@ -32,12 +34,14 @@ export function classifyForRadar(contacts = []) {
   if (!contacts || !Array.isArray(contacts)) return { lost: [], cooling: [], observation: [], active: [] };
   const buckets = { lost: [], cooling: [], observation: [], active: [] };
   for (const c of contacts) {
+    // Ignora contatos sem nenhuma data de referência
+    if (!c.last_purchase_at && !c.updated_at) continue;
     const status = deriveContactStatus(c);
     buckets[status].push({ ...c, status, days: daysSince(c.last_purchase_at) });
   }
   // sort each bucket by days desc (most urgent first)
   for (const key of Object.keys(buckets)) {
-    buckets[key].sort((a, b) => (b.days ?? 0) - (a.days ?? 0));
+    buckets[key].sort((a, b) => (b.days ?? 9999) - (a.days ?? 9999));
   }
   return buckets;
 }

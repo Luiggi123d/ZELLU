@@ -51,7 +51,7 @@ function SuggestionModal({ client, onClose }) {
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
         </div>
         <div className="mb-4 rounded-lg bg-gray-50 p-3">
-          <p className="text-xs text-gray-400">{client.days ?? '—'} dias sem compra · {client.total_purchases || 0} compras no total</p>
+          <p className="text-xs text-gray-400">{client.days != null ? `${client.days} dias sem compra` : 'Sem compras'} · {client.total_purchases || 0} compras no total</p>
         </div>
         {editing ? (
           <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={5} className="mb-4 w-full rounded-lg border border-gray-300 p-3 text-sm focus:border-zellu-500 focus:outline-none focus:ring-1 focus:ring-zellu-500" />
@@ -85,7 +85,7 @@ function ClientCard({ client, color }) {
               <p className="text-xs text-gray-500">{formatPhoneFromDigits(client.phone)}</p>
             </div>
           </div>
-          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${dayColors[color]}`}>{client.days ?? '—'}d</span>
+          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${dayColors[color]}`}>{client.days != null ? `${client.days}d` : 'Sem compras'}</span>
         </div>
         <div className="mt-3 space-y-2">
           <p className="flex items-center gap-1.5 text-sm text-gray-600"><Pill size={14} className="text-gray-400" />{tagsStr}</p>
@@ -108,7 +108,10 @@ function EmptyColumn({ label }) {
   );
 }
 
+const RADAR_PAGE_SIZE = 20;
+
 export default function RadarPage() {
+  const [lostLimit, setLostLimit] = useState(RADAR_PAGE_SIZE);
   const { data, loading, error } = usePageData('radar', async (pid) => {
     const { data, error } = await supabase
       .from('contacts')
@@ -196,7 +199,17 @@ export default function RadarPage() {
             <span className="text-xs text-gray-400">&gt;60 dias</span>
           </div>
           {classified.lost.length > 0
-            ? <div className="space-y-3">{classified.lost.map((c) => <ClientCard key={c.id} client={c} color="red" />)}</div>
+            ? <div className="space-y-3">
+                {classified.lost.slice(0, lostLimit).map((c) => <ClientCard key={c.id} client={c} color="red" />)}
+                {classified.lost.length > lostLimit && (
+                  <button
+                    onClick={() => setLostLimit((l) => l + RADAR_PAGE_SIZE)}
+                    className="w-full rounded-lg border border-gray-200 py-3 text-sm text-gray-500 hover:bg-gray-50"
+                  >
+                    Carregar mais ({classified.lost.length - lostLimit} restantes)
+                  </button>
+                )}
+              </div>
             : <EmptyColumn label="perdido" />}
         </div>
         <div>
