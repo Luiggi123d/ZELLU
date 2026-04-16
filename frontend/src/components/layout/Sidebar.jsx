@@ -4,7 +4,6 @@ import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
 import { classifyForRadar } from '../../lib/dataHelpers';
-import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
 
 const navMain = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -48,9 +47,6 @@ export default function Sidebar() {
   useEffect(() => {
     loadBadges();
   }, [loadBadges]);
-
-  // Rebusca badges ao voltar para a aba ou ganhar foco
-  useRefetchOnFocus(loadBadges, !!profile?.pharmacy_id);
 
   return (
     <aside className="flex h-screen w-64 flex-shrink-0 flex-col bg-zellu-800 text-white">

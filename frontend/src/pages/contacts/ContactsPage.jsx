@@ -15,7 +15,7 @@ export default function ContactsPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
 
-  const { data, loading, error } = usePageData(async (pid) => {
+  const { data, loading, error } = usePageData('contacts', async (pid) => {
     const { data, error } = await supabase
       .from('contacts')
       .select('*')

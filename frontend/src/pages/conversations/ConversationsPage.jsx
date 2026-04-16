@@ -6,7 +6,6 @@ import { formatPhoneFromDigits } from '../../lib/dataHelpers';
 import { timeAgo } from '../../lib/mockData';
 import { SkeletonList } from '../../components/ui/Skeleton';
 import EmptyState from '../../components/ui/EmptyState';
-import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
 import { api } from '../../lib/api';
 
 const statusStyles = {
@@ -63,9 +62,6 @@ export default function ConversationsPage() {
   useEffect(() => {
     loadConversations();
   }, [loadConversations]);
-
-  // Rebusca ao voltar para a aba, ganhar foco ou token renovado
-  useRefetchOnFocus(loadConversations, !!pharmacyId);
 
   // Realtime subscription — refresh conversation list when anything changes.
   useEffect(() => {

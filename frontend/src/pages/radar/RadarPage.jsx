@@ -109,7 +109,7 @@ function EmptyColumn({ label }) {
 }
 
 export default function RadarPage() {
-  const { data, loading, error } = usePageData(async (pid) => {
+  const { data, loading, error } = usePageData('radar', async (pid) => {
     const { data, error } = await supabase
       .from('contacts')
       .select('*')

@@ -85,7 +85,7 @@ export default function PulsePage() {
   const [activeTab, setActiveTab] = useState('pulse');
 
   // Usa usePageData — ganha stale-while-revalidate, visibility, focus, refetch
-  const { data, loading, error, refetch } = usePageData(async (pid) => {
+  const { data, loading, error, refetch } = usePageData('pulse', async (pid) => {
     const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const since7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
     const today = new Date(); today.setHours(0, 0, 0, 0);

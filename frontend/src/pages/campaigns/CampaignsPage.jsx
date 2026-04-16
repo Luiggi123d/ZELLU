@@ -188,7 +188,7 @@ export default function CampaignsPage() {
   const [activeTab, setActiveTab] = useState('pending');
   const [approvalTarget, setApprovalTarget] = useState(null);
 
-  const { data: fetchedCampaigns, loading, error } = usePageData(async (pid) => {
+  const { data: fetchedCampaigns, loading, error } = usePageData('campaigns', async (pid) => {
     const { data, error } = await supabase
       .from('campaigns')
       .select('*')

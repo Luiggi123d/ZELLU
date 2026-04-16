@@ -12,7 +12,7 @@ export default function DashboardPage() {
   const { profile } = useAuthStore();
   const firstName = (profile?.full_name || '').split(' ')[0];
 
-  const { data, loading, error } = usePageData(async (pid) => {
+  const { data, loading, error } = usePageData('dashboard', async (pid) => {
     const [contactsRes, campaignsRes] = await Promise.all([
       supabase.from('contacts').select('*').eq('pharmacy_id', pid),
       supabase.from('campaigns').select('*').eq('pharmacy_id', pid),
