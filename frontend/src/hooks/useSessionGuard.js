@@ -2,13 +2,18 @@ import { useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
 /**
- * Monitora a sessão Supabase e dispara eventos globais:
- * - TOKEN_REFRESHED → dispara zellu:refetch para todas as páginas rebuscarem
- * - SIGNED_OUT → redireciona para login
- * - visibilitychange → verifica se sessão ainda existe
+ * Ponto central de controle de sessao do Zellu.
+ *
+ * Fluxo ao voltar para a aba:
+ * 1. visibilitychange / focus dispara
+ * 2. Primeiro renova o token (await getSession)
+ * 3. So DEPOIS dispara zellu:refetch para as paginas rebuscarem
+ *
+ * Isso elimina a race condition onde queries rodavam com token expirado.
  */
 export function useSessionGuard() {
   useEffect(() => {
+    // Monitora mudancas de autenticacao
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'TOKEN_REFRESHED') {
         console.log('[session] Token renovado — disparando refetch global');
@@ -19,22 +24,47 @@ export function useSessionGuard() {
       }
     });
 
-    // Quando a aba volta ao foco, verifica se a sessão ainda é válida
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        supabase.auth.getSession().then(({ data: { session } }) => {
+    // Funcao central: renova sessao, depois avisa as paginas
+    let debounceTimer;
+    let refreshing = false;
+
+    const refreshAndNotify = () => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(async () => {
+        if (refreshing) return;
+        refreshing = true;
+
+        try {
+          // 1. Renova o token PRIMEIRO
+          const { data: { session } } = await supabase.auth.getSession();
+
           if (!session) {
             window.location.href = '/login';
+            return;
           }
-        });
-      }
+
+          // 2. Token fresco — agora sim avisa as paginas para rebuscar
+          window.dispatchEvent(new CustomEvent('zellu:refetch'));
+        } catch (err) {
+          console.warn('[session] Erro ao renovar sessao:', err);
+        } finally {
+          refreshing = false;
+        }
+      }, 200);
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refreshAndNotify();
+    };
+
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', refreshAndNotify);
 
     return () => {
       subscription.unsubscribe();
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      clearTimeout(debounceTimer);
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', refreshAndNotify);
     };
   }, []);
 }

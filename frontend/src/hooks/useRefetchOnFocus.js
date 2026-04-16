@@ -1,38 +1,22 @@
 import { useEffect, useRef } from 'react';
 
 /**
- * Hook reutilizável para páginas que NÃO usam usePageData
- * (ex.: ConversationsPage com realtime próprio).
+ * Hook para paginas que NAO usam usePageData (ex.: ConversationsPage).
  *
- * Escuta visibilitychange, window focus e zellu:refetch,
- * chamando o callback com debounce de 300ms.
+ * Escuta APENAS zellu:refetch — disparado pelo useSessionGuard
+ * APOS o token ser renovado. Isso garante que a query nunca
+ * roda com token expirado.
  */
 export function useRefetchOnFocus(refetchFn, enabled = true) {
-  const debounceRef = useRef(null);
   const fnRef = useRef(refetchFn);
   fnRef.current = refetchFn;
 
   useEffect(() => {
     if (!enabled) return;
 
-    const debouncedCall = () => {
-      clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => fnRef.current(), 300);
-    };
+    const handler = () => fnRef.current();
 
-    const onVisibility = () => {
-      if (document.visibilityState === 'visible') debouncedCall();
-    };
-
-    document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('focus', debouncedCall);
-    window.addEventListener('zellu:refetch', debouncedCall);
-
-    return () => {
-      clearTimeout(debounceRef.current);
-      document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('focus', debouncedCall);
-      window.removeEventListener('zellu:refetch', debouncedCall);
-    };
+    window.addEventListener('zellu:refetch', handler);
+    return () => window.removeEventListener('zellu:refetch', handler);
   }, [enabled]);
 }

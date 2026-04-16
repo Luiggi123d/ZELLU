@@ -18,13 +18,3 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     },
   },
 });
-
-// Reconecta automaticamente quando a aba volta ao foco
-// Isso resolve o loading infinito após o app ficar inativo
-if (typeof window !== 'undefined') {
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      supabase.auth.getSession().catch(() => {});
-    }
-  });
-}
