@@ -60,16 +60,25 @@ export function usePageData(fetchFn, deps = []) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pharmacyId, ...deps]);
 
-  // Initial fetch
+  const pharmacyIdRef = useRef(pharmacyId);
+  useEffect(() => { pharmacyIdRef.current = pharmacyId; }, [pharmacyId]);
+
+  // Initial fetch — só roda quando pharmacyId muda de verdade (undefined → valor)
+  const prevPharmacyIdRef = useRef(null);
   useEffect(() => {
+    if (!pharmacyId) { setLoading(false); return; }
+    if (prevPharmacyIdRef.current === pharmacyId) return; // não re-executa se já carregou
+    prevPharmacyIdRef.current = pharmacyId;
+
     mountedRef.current = true;
     hasDataRef.current = false;
     setData(null);
     setLoading(true);
     setError(null);
     execute(false);
+
     return () => { mountedRef.current = false; };
-  }, [execute]);
+  }, [pharmacyId, execute]);
 
   // Listen for zellu:refetch (tab visibility change)
   useEffect(() => {

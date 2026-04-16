@@ -33,7 +33,7 @@ export function useSessionGuard() {
       clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         window.dispatchEvent(new CustomEvent('zellu:refetch'));
-      }, 500);
+      }, 1500);
     };
 
     document.addEventListener('visibilitychange', onVisibility);

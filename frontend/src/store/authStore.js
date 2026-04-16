@@ -17,6 +17,9 @@ export const useAuthStore = create((set) => ({
     }
 
     supabase.auth.onAuthStateChange(async (event, session) => {
+      // Ignora TOKEN_REFRESHED — não precisa rebuscar profile, já está no store
+      if (event === 'TOKEN_REFRESHED') return;
+
       if (session?.user) {
         const profile = await api.get('/auth/me').catch(() => null);
         set({ user: session.user, profile });
