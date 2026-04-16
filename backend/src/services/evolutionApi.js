@@ -226,6 +226,21 @@ async function findMessages(pharmacyId, remoteJid, limit = 20) {
 }
 
 /**
+ * Fetches contacts stored in Evolution API for this instance.
+ * This may return pushName/name data that findChats doesn't expose.
+ */
+async function findContacts(pharmacyId) {
+  const instanceName = instanceNameFor(pharmacyId);
+  try {
+    const data = await request('POST', `/chat/findContacts/${encodeURIComponent(instanceName)}`, {});
+    return Array.isArray(data) ? data : (data?.records || data?.contacts || []);
+  } catch (err) {
+    if (err.status === 404) return [];
+    throw err;
+  }
+}
+
+/**
  * Deletes an instance. Tries logout first so Baileys disconnects cleanly.
  */
 async function deleteInstance(pharmacyId) {
@@ -266,6 +281,7 @@ module.exports = {
   getConnectionState,
   fetchInstances,
   findChats,
+  findContacts,
   findMessages,
   deleteInstance,
   getWebhookInfo,

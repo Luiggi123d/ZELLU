@@ -239,6 +239,36 @@ router.get('/debug-chats', requireAuth, requirePharmacy, async (req, res, next) 
 });
 
 // ============================================================
+// GET /api/whatsapp/debug-contacts
+// TEMPORARIO — testa findContacts da Evolution API
+// ============================================================
+router.get('/debug-contacts', requireAuth, requirePharmacy, async (req, res, next) => {
+  try {
+    const contacts = await evolution.findContacts(req.pharmacyId);
+    const withName = contacts.filter(c => {
+      const name = c.pushName || c.name || c.profileName || c.fullName || c.verifiedName;
+      return name && name.trim().length >= 2 && !/^[\d\s\-+().]+$/.test(name.trim());
+    });
+    return res.json({
+      totalContacts: contacts.length,
+      withValidName: withName.length,
+      fields: contacts[0] ? Object.keys(contacts[0]) : [],
+      sample: contacts.slice(0, 3),
+      namedSample: withName.slice(0, 10).map(c => ({
+        pushName: c.pushName,
+        name: c.name,
+        profileName: c.profileName,
+        fullName: c.fullName,
+        id: c.id,
+        remoteJid: c.remoteJid,
+      })),
+    });
+  } catch (err) {
+    return res.json({ error: err.message });
+  }
+});
+
+// ============================================================
 // GET /api/whatsapp/webhook-info
 // Returns the current webhook config reported by Evolution API,
 // plus the expected URL so we can diagnose mismatches.
