@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { LayoutDashboard, Users, Radar, MessageSquare, Megaphone, Settings, Search, LogOut } from 'lucide-react';
+import { LayoutDashboard, Users, Radar, Activity, Megaphone, Settings, Search, LogOut } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuthStore } from '../../store/authStore';
@@ -9,7 +9,7 @@ const navItemsBase = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/contacts', label: 'Contatos', icon: Users },
   { to: '/radar', label: 'Radar', icon: Radar, badgeKey: 'radar' },
-  { to: '/conversas', label: 'Conversas', icon: MessageSquare },
+  { to: '/pulse', label: 'Pulse', icon: Activity, badgeKey: 'complaints' },
   { to: '/campanhas', label: 'Campanhas', icon: Megaphone, badgeKey: 'campaigns' },
   { to: '/configuracoes', label: 'Configurações', icon: Settings },
 ];
@@ -17,7 +17,7 @@ const navItemsBase = [
 export default function Sidebar() {
   const { profile, signOut } = useAuthStore();
   const [search, setSearch] = useState('');
-  const [badges, setBadges] = useState({ radar: 0, campaigns: 0 });
+  const [badges, setBadges] = useState({ radar: 0, campaigns: 0, complaints: 0 });
 
   const pharmacyName = profile?.pharmacies?.name || 'Sua farmácia';
   const userName = profile?.full_name || 'Usuário';
@@ -27,15 +27,20 @@ export default function Sidebar() {
     let cancelled = false;
     async function loadBadges() {
       if (!profile?.pharmacy_id) return;
-      const [contactsRes, campaignsRes] = await Promise.all([
+      const [contactsRes, campaignsRes, complaintsRes] = await Promise.all([
         supabase.from('contacts').select('last_purchase_at').eq('pharmacy_id', profile.pharmacy_id),
         supabase.from('campaigns').select('status').eq('pharmacy_id', profile.pharmacy_id).eq('status', 'draft'),
+        supabase.from('conversations').select('id', { count: 'exact', head: true })
+          .eq('pharmacy_id', profile.pharmacy_id)
+          .eq('has_complaint', true)
+          .gte('last_message_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()),
       ]);
       if (cancelled) return;
       const classified = classifyForRadar(contactsRes.data || []);
       setBadges({
         radar: classified.lost.length + classified.cooling.length,
         campaigns: (campaignsRes.data || []).length,
+        complaints: complaintsRes.count || 0,
       });
     }
     loadBadges();

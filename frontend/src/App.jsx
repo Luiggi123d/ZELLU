@@ -8,7 +8,7 @@ import DashboardPage from './pages/dashboard/DashboardPage';
 import ContactsPage from './pages/contacts/ContactsPage';
 import ContactDetailPage from './pages/contacts/ContactDetailPage';
 import RadarPage from './pages/radar/RadarPage';
-import ConversationsPage from './pages/conversations/ConversationsPage';
+import PulsePage from './pages/pulse/PulsePage';
 import CampaignsPage from './pages/campaigns/CampaignsPage';
 import SettingsPage from './pages/settings/SettingsPage';
 
@@ -30,7 +30,7 @@ export default function App() {
           <Route path="/contacts" element={<ContactsPage />} />
           <Route path="/contacts/:id" element={<ContactDetailPage />} />
           <Route path="/radar" element={<RadarPage />} />
-          <Route path="/conversas" element={<ConversationsPage />} />
+          <Route path="/pulse" element={<PulsePage />} />
           <Route path="/campanhas" element={<CampaignsPage />} />
           <Route path="/configuracoes" element={<SettingsPage />} />
         </Route>

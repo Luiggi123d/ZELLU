@@ -3,6 +3,7 @@ const { supabaseAdmin } = require('../../config/supabase');
 const { requireAuth, requirePharmacy } = require('../../middleware/auth');
 const evolution = require('../../services/evolutionApi');
 const { syncHistoryForPharmacy } = require('../../services/syncHistory');
+const { processOnboardingHistory } = require('../../services/onboardingProcessor');
 
 const router = Router();
 
@@ -308,6 +309,19 @@ async function handleConnectionUpdate(pharmacyId, instanceName, data) {
         .then((r) => console.log(`[sync-history] pharmacy=${pharmacyId}`, r))
         .catch((err) => console.error(`[sync-history] pharmacy=${pharmacyId} error:`, err.message));
     }, 5000);
+
+    // Dispara onboarding na primeira conexão (análise de 30 dias)
+    const { data: pharmacy } = await supabaseAdmin
+      .from('pharmacies')
+      .select('onboarding_status')
+      .eq('id', pharmacyId)
+      .single();
+
+    if (pharmacy?.onboarding_status === 'pending') {
+      processOnboardingHistory(pharmacyId).catch((err) =>
+        console.error('[webhook] onboarding error:', err.message)
+      );
+    }
   }
 }
 
